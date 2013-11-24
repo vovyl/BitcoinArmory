@@ -917,15 +917,14 @@ class ArmoryMainWindow(QMainWindow):
          action = 'DoNothing'
          modulepathname = '"'
          if getattr(sys, 'frozen', False):
-             app_dir = os.path.dirname(sys.executable)
-             app_path = os.path.join(app_dir, sys.executable)
+            app_dir = os.path.dirname(sys.executable)
+            app_path = os.path.join(app_dir, sys.executable)
          elif __file__:
-             return #running from a .py script, not gonna register URI on Windows
+            return #running from a .py script, not gonna register URI on Windows
 
          modulepathname += app_path + '" %1'
          LOGWARN("running from: %s, key: %s", app_path, modulepathname)
          
-
          rootKey = 'bitcoin\\shell\\open\\command'
          try:
             userKey = 'Software\\Classes\\' + rootKey

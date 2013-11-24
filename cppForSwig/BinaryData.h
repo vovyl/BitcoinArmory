@@ -10,9 +10,7 @@
 
 #include <stdio.h>
 #if defined(_MSC_VER) || defined(__MINGW32__)
-	#if _MSC_PLAFORM_TOOLSET == v100
-		#include <stdint.h>
-	#endif
+
 #else
    #include <stdlib.h>
    #include <inttypes.h>   
@@ -530,7 +528,7 @@ public:
    // Absorb a binary file's data into a new BinaryData object
    int32_t readBinaryFile(string filename)
    {
-      ifstream is(filename.c_str(), ios::in | ios::binary );
+      ifstream is(OS_TranslatePath(filename.c_str()), ios::in | ios::binary );
       if( !is.is_open() )
          return -1;
 
@@ -1548,7 +1546,7 @@ public:
          streamPtr_ = new ifstream;
          weOwnTheStream_ = true;
          ifstream* ifstreamPtr = static_cast<ifstream*>(streamPtr_);
-         ifstreamPtr->open(filename.c_str(), ios::in | ios::binary);
+         ifstreamPtr->open(OS_TranslatePath(filename.c_str()), ios::in | ios::binary);
          if( !ifstreamPtr->is_open() )
          {
             cerr << "Could not open file for reading!  File: " << filename.c_str() << endl;

@@ -11,6 +11,7 @@
 #include <dirent_win32.h>
 #include <direct.h>
 #include <sys/stat.h>
+#include <string>
 
 #if defined LEVELDB_DLL
 #define LEVELDB_EXPORT __declspec(dllimport)

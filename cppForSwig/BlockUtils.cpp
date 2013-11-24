@@ -12,8 +12,6 @@
 #include "BlockUtils.h"
 
 
-
-
 BlockDataManager_LevelDB* BlockDataManager_LevelDB::theOnlyBDM_ = NULL;
 vector<LedgerEntry> BtcWallet::EmptyLedger_(0);
 InterfaceToLDB* BlockDataManager_LevelDB::iface_=NULL;
@@ -1289,7 +1287,7 @@ void BtcWallet::scanNonStdTx(uint32_t blknum,
       LOGERR << "        an address in your wallet.  There is no way";
       LOGERR << "        for this program to determine if you can";
       LOGERR << "        spend these BTC or not.  Please email the";
-      LOGERR << "        following information to etotheipi@gmail.com";
+      LOGERR << "        following information to support@bitcoinarmory.com";
       LOGERR << "        for help identifying the transaction and how";
       LOGERR << "        to spend it:";
       LOGERR << "   Block Number: " << blknum;
@@ -1880,7 +1878,7 @@ vector<BinaryData> BlockDataManager_LevelDB::getFirstHashOfEachBlkFile(void) con
    vector<BinaryData> headHashes(nFile);
    for(uint32_t f=0; f<nFile; f++)
    {
-      ifstream is(blkFileList_[f].c_str(), ios::in|ios::binary);
+      ifstream is(OS_TranslatePath(blkFileList_[f].c_str()), ios::in|ios::binary);
       is.seekg(0, ios::end);
       size_t filesize = (size_t)is.tellg();
       is.seekg(0, ios::beg);
@@ -1914,7 +1912,7 @@ uint32_t BlockDataManager_LevelDB::findOffsetFirstUnrecognized(uint32_t fnum)
    uint32_t loc = 0;
    BinaryData magic(4), szstr(4), rawHead(80), hashResult(32);
 
-   ifstream is(blkFileList_[fnum].c_str(), ios::in|ios::binary);
+   ifstream is(OS_TranslatePath(blkFileList_[fnum].c_str()), ios::in|ios::binary);
    while(!is.eof())
    {
       is.read((char*)magic.getPtr(), 4);
@@ -1956,7 +1954,7 @@ uint32_t BlockDataManager_LevelDB::findFirstBlkApproxOffset(uint32_t fnum,
 
    uint32_t loc = 0;
    BinaryData magic(4), szstr(4), rawHead(80), hashResult(32);
-   ifstream is(blkFileList_[fnum].c_str(), ios::in|ios::binary);
+   ifstream is(OS_TranslatePath(blkFileList_[fnum].c_str()), ios::in|ios::binary);
    while(!is.eof() && loc <= offset)
    {
       is.read((char*)magic.getPtr(), 4);
@@ -2009,7 +2007,7 @@ pair<uint32_t, uint32_t> BlockDataManager_LevelDB::findFileAndOffsetForHgt(
 
    uint32_t loc = 0;
    BinaryData magic(4), szstr(4), rawHead(HEADER_SIZE), hashResult(32);
-   ifstream is(blkFileList_[blkfile].c_str(), ios::in|ios::binary);
+   ifstream is(OS_TranslatePath(blkFileList_[blkfile].c_str()), ios::in|ios::binary);
    while(!is.eof())
    {
       is.read((char*)magic.getPtr(), 4);
@@ -2985,7 +2983,7 @@ void BlockDataManager_LevelDB::writeProgressFile(DB_BUILD_PHASE phase,
    if(height!=0)
       startAtByte = blkFileCumul_[blkfile] + offset;
       
-   ofstream topblks(bfile.c_str(), ios::app);
+   ofstream topblks(OS_TranslatePath(bfile.c_str()), ios::app);
    double t = TIMER_READ_SEC(timerName);
    topblks << (uint32_t)phase << " "
            << startAtByte << " " 
@@ -3301,7 +3299,7 @@ bool BlockDataManager_LevelDB::extractHeadersInBlkFile(uint32_t fnum,
       return true;
    
 
-   ifstream is(filename.c_str(), ios::in | ios::binary);
+   ifstream is(OS_TranslatePath(filename.c_str()), ios::in | ios::binary);
    BinaryData fileMagic(4);
    is.read((char*)(fileMagic.getPtr()), 4);
    is.seekg(startOffset, ios::beg);
@@ -3506,6 +3504,7 @@ void BlockDataManager_LevelDB::fetchAllRegisteredScrAddrData(
       iface_->getStoredTx(stx, txref.getDBKey());
       regTx = RegisteredTx(txref, stx.thisHash_, stx.blockHeight_, stx.txIndex_);
       insertRegisteredTxIfNew(regTx);
+      registeredOutPoints_.insert(hist[i].getOutPoint());
 
       txref = hist[i].getTxRefOfInput();
       if(txref.isNull())
@@ -3660,9 +3659,9 @@ void BlockDataManager_LevelDB::buildAndScanDatabases(
 
    // Remove this file
    if(BtcUtils::GetFileSize(blkProgressFile_) != FILE_DOES_NOT_EXIST)
-      remove(blkProgressFile_.c_str());
+      remove(OS_TranslatePath(blkProgressFile_).c_str());
    if(BtcUtils::GetFileSize(abortLoadFile_) != FILE_DOES_NOT_EXIST)
-      remove(abortLoadFile_.c_str());
+      remove(OS_TranslatePath(abortLoadFile_).c_str());
    
    if(!initialLoad)
       detectAllBlkFiles(); // only need to spend time on this on the first call
@@ -3797,6 +3796,7 @@ void BlockDataManager_LevelDB::buildAndScanDatabases(
       LOGINFO << "ScrAddr: " << iter->second.uniqueKey_.toHexStr().c_str()
                << " " << iter->second.alreadyScannedUpToBlk_;
    */
+
 }
 
 
@@ -3810,7 +3810,7 @@ void BlockDataManager_LevelDB::readRawBlocksInFile(uint32_t fnum, uint32_t foffs
    LOGINFO << blkfile.c_str() << " is " << fsizestr.c_str() << " bytes";
 
    // Open the file, and check the magic bytes on the first block
-   ifstream is(blkfile.c_str(), ios::in | ios::binary);
+   ifstream is(OS_TranslatePath(blkfile.c_str()), ios::in | ios::binary);
    BinaryData fileMagic(4);
    is.read((char*)(fileMagic.getPtr()), 4);
    if( !(fileMagic == MagicBytes_ ) )
@@ -3950,7 +3950,6 @@ void BlockDataManager_LevelDB::scanDBForRegisteredTx(uint32_t blk0,
           iter++)
       {
          StoredTx & stx = iter->second;
-         Tx tx = stx.getTxCopy();
          registeredScrAddrScan_IterSafe(stx);
       }
 
@@ -4052,7 +4051,7 @@ uint32_t BlockDataManager_LevelDB::readBlkFileUpdate(void)
    string filename = blkFileList_[blkFileList_.size()-1];
 
    uint64_t filesize = FILE_DOES_NOT_EXIST;
-   ifstream is(filename.c_str(), ios::in|ios::binary);
+   ifstream is(OS_TranslatePath(filename.c_str()), ios::in|ios::binary);
    if(is.is_open())
    {
       is.seekg(0, ios::end);
@@ -4124,7 +4123,7 @@ uint32_t BlockDataManager_LevelDB::readBlkFileUpdate(void)
    // Seek to the beginning of the new data and read it
    if(currBlkBytesToRead>0)
    {
-      ifstream is(filename.c_str(), ios::in | ios::binary);
+      ifstream is(OS_TranslatePath(filename.c_str()), ios::in | ios::binary);
       is.seekg(endOfLastBlockByte_, ios::beg);
       is.read((char*)newBlockDataRaw.getPtr(), currBlkBytesToRead);
       is.close();
@@ -4138,7 +4137,7 @@ uint32_t BlockDataManager_LevelDB::readBlkFileUpdate(void)
    if(nextBlkBytesToRead>0)
    {
       uint8_t* ptrNextData = newBlockDataRaw.getPtr() + currBlkBytesToRead;
-      ifstream is(nextFilename.c_str(), ios::in | ios::binary);
+      ifstream is(OS_TranslatePath(nextFilename.c_str()), ios::in | ios::binary);
       is.read((char*)ptrNextData, nextBlkBytesToRead);
       is.close();
    }
@@ -4258,6 +4257,7 @@ uint32_t BlockDataManager_LevelDB::readBlkFileUpdate(void)
          UniversalTimer::instance().printCSV(cout,true);
 	   #endif
    #endif
+
 
    return nBlkRead;
 
@@ -5022,7 +5022,7 @@ void BlockDataManager_LevelDB::readZeroConfFile(string zcFilename)
    if(filesize<8 || filesize==FILE_DOES_NOT_EXIST)
       return;
 
-   ifstream zcFile(zcFilename_.c_str(),  ios::in | ios::binary);
+   ifstream zcFile(OS_TranslatePath(zcFilename_.c_str()),  ios::in | ios::binary);
    BinaryData zcData((size_t)filesize);
    zcFile.read((char*)zcData.getPtr(), filesize);
    zcFile.close();
@@ -5079,7 +5079,7 @@ bool BlockDataManager_LevelDB::addNewZeroConfTx(BinaryData const & rawTx,
    // Record time.  Write to file
    if(writeToFile)
    {
-      ofstream zcFile(zcFilename_.c_str(), ios::app | ios::binary);
+      ofstream zcFile(OS_TranslatePath(zcFilename_.c_str()), ios::app | ios::binary);
       zcFile.write( (char*)(&zc.txtime_), sizeof(uint64_t) );
       zcFile.write( (char*)zc.txobj_.getPtr(),  zc.txobj_.getSize());
       zcFile.close();
@@ -5128,7 +5128,7 @@ void BlockDataManager_LevelDB::purgeZeroConfPool(void)
 void BlockDataManager_LevelDB::rewriteZeroConfFile(void)
 {
    SCOPED_TIMER("rewriteZeroConfFile");
-   ofstream zcFile(zcFilename_.c_str(), ios::out | ios::binary);
+   ofstream zcFile(OS_TranslatePath(zcFilename_.c_str()), ios::out | ios::binary);
 
    static HashString txHash(32);
    list<HashString>::iterator iter;

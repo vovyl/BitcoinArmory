@@ -11,6 +11,10 @@
 
 %module CppBlockUtils
 
+%#ifdef SWIGWIN
+#define		_MSC_VER	1700
+%#endif
+
 %{
 #define SWIG_PYTHON_EXTRA_NATIVE_CONTAINERS
 #include "BlockObj.h"
@@ -19,10 +23,13 @@
 #include "EncryptionUtils.h"
 %}
 
+
 %include "std_string.i"
+%include "std_wstring.i"
 %include "std_vector.i"
 
 %typedef std::string string;
+%typedef std::wstring wstring;
 %typedef unsigned char      uint8_t;
 %typedef unsigned short     uint16_t;
 %typedef unsigned int       uint32_t;

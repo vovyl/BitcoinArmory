@@ -128,6 +128,12 @@ bool InterfaceToLDB::openDatabases(string basedir,
 
    baseDir_ = basedir;
 
+   //temporary walk around leveldb unicode path handling, until it is supported within leveldb
+#ifdef _MSC_VER
+   SetCurrentDirectoryW(OS_TranslatePath(baseDir_).c_str());
+   dbPaths_[0] = "./leveldb_headers";
+   dbPaths_[1] = "./leveldb_blkdata";
+#else
    stringstream head;
    head << baseDir_ << "/" << "leveldb_headers";
    dbPaths_[0] = head.str();
@@ -135,6 +141,7 @@ bool InterfaceToLDB::openDatabases(string basedir,
    stringstream blk;
    blk << baseDir_ << "/" << "leveldb_blkdata";
    dbPaths_[1] = blk.str();
+#endif
    
    magicBytes_ = magic;
    genesisTxHash_ = genesisTxHash;

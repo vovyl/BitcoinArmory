@@ -6,12 +6,12 @@
 #                                                                              #
 ################################################################################
 
-# Version Numbers 
-BTCARMORY_VERSION    = (0, 89, 99, 15)  # (Major, Minor, Bugfix, AutoIncrement) 
+# Version Numbers
+BTCARMORY_VERSION    = (0, 89, 99, 15)  # (Major, Minor, Bugfix, AutoIncrement)
 PYBTCWALLET_VERSION  = (1, 35,  0, 0)  # (Major, Minor, Bugfix, AutoIncrement)
 
 ARMORY_DONATION_ADDR = '1ArmoryXcfq7TnCSuZa9fQjRYwJ4bkRKfv'
-ARMORY_DONATION_PUBKEY = ( '04' 
+ARMORY_DONATION_PUBKEY = ( '04'
       '11d14f8498d11c33d08b0cd7b312fb2e6fc9aebd479f8e9ab62b5333b2c395c5'
       'f7437cab5633b5894c4a5c2132716bc36b7571cbe492a7222442b75df75b9a84')
 ARMORY_INFO_SIGN_ADDR = '1NWvhByxfTXPYNT4zMBmEY3VL8QJQtQoei'
@@ -23,13 +23,14 @@ SATOSHI_PUBLIC_KEY = ( '04'
       'ead8564ff0db22209e0374782c093bb899692d524e9d6a6956e7c5ecbcd68284')
 
 
-   
+
 
 import copy
 import hashlib
 import random
 import time
 import os
+os.environ['PYTHONIOENCODING'] = 'utf-8'
 import string
 import sys
 import stat
@@ -83,6 +84,13 @@ parser.add_option("--verbosity", dest="verbosity", default=None, type="int", hel
 parser.add_option("--coverage_output_dir", dest="coverageOutputDir", default=None, type="str", help="Unit Test Argument - Do not consume")
 parser.add_option("--coverage_include", dest="coverageInclude", default=None, type="str", help="Unit Test Argument - Do not consume")
 
+# Get the host operating system
+import platform
+opsys = platform.system()
+OS_WINDOWS = 'win32'  in opsys.lower() or 'windows' in opsys.lower()
+OS_LINUX   = 'nix'    in opsys.lower() or 'nux'     in opsys.lower()
+OS_MACOSX  = 'darwin' in opsys.lower() or 'osx'     in opsys.lower()
+
 ################################################################################
 # We need to have some methods for casting ASCII<->Unicode<->Preferred
 DEFAULT_ENCODING = 'utf-8'
@@ -119,7 +127,8 @@ def toUnicode(theStr, theEncoding=DEFAULT_ENCODING):
 
 
 def toPreferred(theStr):
-   return toUnicode(theStr).encode(locale.getpreferredencoding())
+   if OS_WINDOWS: return toUnicode(theStr)#.encode('mbcs') #locale.getpreferredencoding()
+   else: return toUnicode(theStr).encode(locale.getpreferredencoding())
 
 
 def lenBytes(theStr, theEncoding=DEFAULT_ENCODING):
@@ -127,6 +136,37 @@ def lenBytes(theStr, theEncoding=DEFAULT_ENCODING):
 ################################################################################
 
 
+if OS_WINDOWS:
+   def win32_unicode_argv():
+      """Uses shell32.GetCommandLineArgvW to get sys.argv as a list of Unicode
+      strings.
+   
+      Versions 2.x of Python don't support Unicode in sys.argv on
+      Windows, with the underlying Windows API instead replacing multi-byte
+      characters with '?'.
+      """
+   
+      from ctypes import POINTER, byref, cdll, c_int, windll
+      from ctypes.wintypes import LPCWSTR, LPWSTR
+   
+      GetCommandLineW = cdll.kernel32.GetCommandLineW
+      GetCommandLineW.argtypes = []
+      GetCommandLineW.restype = LPCWSTR
+   
+      CommandLineToArgvW = windll.shell32.CommandLineToArgvW
+      CommandLineToArgvW.argtypes = [LPCWSTR, POINTER(c_int)]
+      CommandLineToArgvW.restype = POINTER(LPWSTR)
+   
+      cmd = GetCommandLineW()
+      argc = c_int(0)
+      uargv = CommandLineToArgvW(cmd, byref(argc))
+      if argc.value > 0:
+         # Remove Python executable and commands if present
+         start = argc.value - len(argv)
+         return [uargv[i] for i in
+            xrange(start, argc.value)]
+   
+   sys.argv = win32_unicode_argv()
 
 (CLI_OPTIONS, CLI_ARGS) = parser.parse_args()
 
@@ -134,7 +174,7 @@ def lenBytes(theStr, theEncoding=DEFAULT_ENCODING):
 # Use CLI args to determine testnet or not
 USE_TESTNET = CLI_OPTIONS.testnet
 #USE_TESTNET = True
-   
+
 
 # Set default port for inter-process communication
 if CLI_OPTIONS.interport < 0:
@@ -174,13 +214,6 @@ def readVersionInt(verInt):
    verList.append( int(verStr[ -7:-5    ]) )
    verList.append( int(verStr[:-7       ]) )
    return tuple(verList[::-1])
-
-# Get the host operating system
-import platform
-opsys = platform.system()
-OS_WINDOWS = 'win32'  in opsys.lower() or 'windows' in opsys.lower()
-OS_LINUX   = 'nix'    in opsys.lower() or 'nux'     in opsys.lower()
-OS_MACOSX  = 'darwin' in opsys.lower() or 'osx'     in opsys.lower()
 
 # Figure out the default directories for Satoshi client, and BicoinArmory
 OS_NAME          = ''
@@ -393,18 +426,18 @@ NETWORKS['\x34'] = "Namecoin Network"
 #
 
 # Want to get the line in which an error was triggered, but by wrapping
-# the logger function (as I will below), the displayed "file:linenum" 
+# the logger function (as I will below), the displayed "file:linenum"
 # references the logger function, not the function that called it.
-# So I use traceback to find the file and line number two up in the 
-# stack trace, and return that to be displayed instead of default 
+# So I use traceback to find the file and line number two up in the
+# stack trace, and return that to be displayed instead of default
 # [Is this a hack?  Yes and no.  I see no other way to do this]
 def getCallerLine():
    stkTwoUp = traceback.extract_stack()[-3]
    filename,method = stkTwoUp[0], stkTwoUp[1]
    return '%s:%d' % (os.path.basename(filename),method)
-   
+
 # When there's an error in the logging function, it's impossible to find!
-# These wrappers will print the full stack so that it's possible to find 
+# These wrappers will print the full stack so that it's possible to find
 # which line triggered the error
 def LOGDEBUG(msg, *a):
    try:
@@ -514,7 +547,7 @@ consoleHandler.setLevel(DEFAULT_CONSOLE_LOGTHRESH)
 consoleHandler.setFormatter( consoleFormatter )
 logging.getLogger('').addHandler(consoleHandler)
 
-      
+
 
 class stringAggregator(object):
    def __init__(self):
@@ -528,7 +561,7 @@ class stringAggregator(object):
 # A method to redirect pprint() calls to the log file
 # Need a way to take a pprint-able object, and redirect its output to file
 # Do this by swapping out sys.stdout temporarily, execute theObj.pprint()
-# then set sys.stdout back to the original.  
+# then set sys.stdout back to the original.
 def LOGPPRINT(theObj, loglevel=DEFAULT_PPRINT_LOGLEVEL):
    sys.stdout = stringAggregator()
    theObj.pprint()
@@ -538,7 +571,7 @@ def LOGPPRINT(theObj, loglevel=DEFAULT_PPRINT_LOGLEVEL):
    filename,method = stkOneUp[0], stkOneUp[1]
    methodStr  = '(PPRINT from %s:%d)\n' % (filename,method)
    logging.log(loglevel, methodStr + printedStr)
-   
+
 # For super-debug mode, we'll write out raw data
 def LOGRAWDATA(rawStr, loglevel=DEFAULT_RAWDATA_LOGLEVEL):
    dtype = isLikelyDataType(rawStr)
@@ -590,7 +623,7 @@ elif CLI_OPTIONS.logcpp:
    raw_input()
    os.dup2(cpplogfile.fileno(), sys.stderr.fileno())
 """
-   
+
 
 fileRebuild = os.path.join(ARMORY_HOME_DIR, 'rebuild.txt')
 fileRescan  = os.path.join(ARMORY_HOME_DIR, 'rescan.txt')
@@ -599,7 +632,7 @@ if os.path.exists(fileRebuild):
    os.remove(fileRebuild)
    if os.path.exists(fileRescan):
       os.remove(fileRescan)
-      
+
    CLI_OPTIONS.rebuild = True
 elif os.path.exists(fileRescan):
    LOGINFO('Found %s, will throw out saved history, rescan' % fileRescan)
@@ -615,7 +648,7 @@ def logexcept_override(type, value, tback):
    strList = traceback.format_exception(type,value,tback)
    logging.error(''.join([s for s in strList]))
    # then call the default handler
-   sys.__excepthook__(type, value, tback) 
+   sys.__excepthook__(type, value, tback)
 
 sys.excepthook = logexcept_override
 
@@ -655,8 +688,8 @@ def launchProcess(cmd, useStartInfo=True, *args, **kwargs):
 
 ################################################################################
 def killProcess(pid, sig='default'):
-   # I had to do this, because killing a process in Windows has issues 
-   # when using py2exe (yes, os.kill does not work, for the same reason 
+   # I had to do this, because killing a process in Windows has issues
+   # when using py2exe (yes, os.kill does not work, for the same reason
    # I had to pass stdin/stdout/stderr everywhere...
    LOGWARN('Killing process pid=%d', pid)
    if not OS_WINDOWS:
@@ -671,8 +704,8 @@ def killProcess(pid, sig='default'):
       hProcess = k32.OpenProcess(1, False, pid)
       k32.TerminateProcess(hProcess, 1)
       k32.CloseHandle(hProcess)
-         
-           
+
+
 
 ################################################################################
 def subprocess_check_output(*popenargs, **kwargs):
@@ -686,12 +719,12 @@ def subprocess_check_output(*popenargs, **kwargs):
    output, unused_err = process.communicate()
    retcode = process.poll()
    if retcode:
-       cmd = kwargs.get("args")
-       if cmd is None:
-           cmd = popenargs[0]
-       error = CalledProcessError(retcode, cmd)
-       error.output = output
-       raise error
+      cmd = kwargs.get("args")
+      if cmd is None:
+         cmd = popenargs[0]
+      error = CalledProcessError(retcode, cmd)
+      error.output = output
+      raise error
    return output
 
 
@@ -713,9 +746,9 @@ def killProcessTree(pid):
 ################################################################################
 # Similar to subprocess_check_output, but used for long-running commands
 def execAndWait(cli_str, timeout=0, useStartInfo=True):
-   """ 
+   """
    There may actually still be references to this function where check_output
-   would've been more appropriate.  But I didn't know about check_output at 
+   would've been more appropriate.  But I didn't know about check_output at
    the time...
    """
 
@@ -737,7 +770,7 @@ def execAndWait(cli_str, timeout=0, useStartInfo=True):
 class DumbStruct(object): pass
 def GetSystemDetails():
    """Checks memory of a given system"""
- 
+
    out = DumbStruct()
 
    CPU,COR,X64,MEM = range(4)
@@ -776,7 +809,7 @@ def GetSystemDetails():
             # have to initialize this to the size of MEMORYSTATUSEX
             self.dwLength = ctypes.sizeof(self)
             super(MEMORYSTATUSEX, self).__init__()
-      
+
       stat = MEMORYSTATUSEX()
       ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
       out.Memory = stat.ullTotalPhys/1024.
@@ -801,7 +834,7 @@ except:
    SystemSpecs.CpuStr   = 'Unknown'
    SystemSpecs.NumCores = -1
    SystemSpecs.IsX64    = 'Unknown'
-   
+
 
 LOGINFO('')
 LOGINFO('')
@@ -851,7 +884,7 @@ def GetExecDir():
 def coin2str(nSatoshi, ndec=8, rJust=True, maxZeros=8):
    """
    Converts a raw value (1e-8 BTC) into a formatted string for display
-   
+
    ndec, guarantees that we get get a least N decimal places in our result
 
    maxZeros means we will replace zeros with spaces up to M decimal places
@@ -878,7 +911,7 @@ def coin2str(nSatoshi, ndec=8, rJust=True, maxZeros=8):
    s = s.replace('. ', '')
 
    return s
-    
+
 
 def coin2strNZ(nSatoshi):
    """ Right-justified, minimum zeros, but with padding for alignment"""
@@ -894,7 +927,7 @@ def coin2str_approx(nSatoshi, sigfig=3):
    if nSatoshi<0:
       isNeg = True
       posVal *= -1
-      
+
    nDig = max(round(math.log(posVal+1, 10)-0.5), 0)
    nChop = max(nDig-2, 0 )
    approxVal = round((10**nChop) * round(posVal / (10**nChop)))
@@ -905,9 +938,9 @@ def str2coin(theStr, negAllowed=True, maxDec=8, roundHighPrec=True):
    coinStr = str(theStr)
    if len(coinStr.strip())==0:
       raise ValueError
-         
+
    isNeg = ('-' in coinStr)
-   coinStrPos = coinStr.replace('-','') 
+   coinStrPos = coinStr.replace('-','')
    if not '.' in coinStrPos:
       if not negAllowed and isNeg:
          raise NegativeValueError
@@ -924,7 +957,7 @@ def str2coin(theStr, negAllowed=True, maxDec=8, roundHighPrec=True):
       return fullInt*(-1 if isNeg else 1)
 
 
-# This is a sweet trick for create enum-like dictionaries. 
+# This is a sweet trick for create enum-like dictionaries.
 # Either automatically numbers (*args), or name-val pairs (**kwargs)
 #http://stackoverflow.com/questions/36932/whats-the-best-way-to-implement-an-enum-in-python
 def enum(*sequential, **named):
@@ -966,7 +999,7 @@ GIGABYTE = 1024*MEGABYTE
 TERABYTE = 1024*GIGABYTE
 PETABYTE = 1024*TERABYTE
 
-# Set the default-default 
+# Set the default-default
 DEFAULT_DATE_FORMAT = '%Y-%b-%d %I:%M%p'
 FORMAT_SYMBOLS = [ \
    ['%y', 'year, two digit (00-99)'], \
@@ -984,14 +1017,14 @@ FORMAT_SYMBOLS = [ \
    ['%%', 'percent symbol'] ]
 
 
-# The database uses prefixes to identify type of address.  Until the new 
+# The database uses prefixes to identify type of address.  Until the new
 # wallet format is created that supports more than just hash160 addresses
-# we have to explicitly add the prefix to any hash160 values that are being 
+# we have to explicitly add the prefix to any hash160 values that are being
 # sent to any of the C++ utilities.  For instance, the BlockDataManager (BDM)
 # (C++ stuff) tracks regular hash160 addresses, P2SH, multisig, and all
 # non-standard scripts.  Any such "scrAddrs" (script-addresses) will eventually
 # be valid entities for tracking in a wallet.  Until then, all of our python
-# utilities all use just hash160 values, and we manually add the prefix 
+# utilities all use just hash160 values, and we manually add the prefix
 # before talking to the BDM.
 HASH160PREFIX  = '\x00'
 P2SHPREFIX     = '\x05'
@@ -1059,7 +1092,7 @@ except:
 
 DATATYPE = enum("Binary", 'Base58', 'Hex')
 def isLikelyDataType(theStr, dtype=None):
-   """ 
+   """
    This really shouldn't be used on short strings.  Hence
    why it's called "likely" datatype...
    """
@@ -1087,14 +1120,14 @@ def getCurrTimeAndBlock():
       return (time0, TheBDM.getTopBlockHeight())
    else:
       return (time0, UINT32_MAX)
-   
+
 
 
 # Define all the hashing functions we're going to need.  We don't actually
 # use any of the first three directly (sha1, sha256, ripemd160), we only
 # use hash256 and hash160 which use the first three to create the ONLY hash
 # operations we ever do in the bitcoin network
-# UPDATE:  mini-private-key format requires vanilla sha256... 
+# UPDATE:  mini-private-key format requires vanilla sha256...
 def sha1(bits):
    return hashlib.new('sha1', bits).digest()
 def sha256(bits):
@@ -1349,7 +1382,7 @@ def base58_to_binary(addr):
    return '\x00'*padding + binOut
 
 
-   
+
 
 
 
@@ -1406,7 +1439,7 @@ def makeSixteenBytesEasy(b16):
    if not len(b16)==16:
       raise ValueError, 'Must supply 16-byte input'
    chk2 = computeChecksum(b16, nBytes=2)
-   et18 = binary_to_easyType16(b16 + chk2) 
+   et18 = binary_to_easyType16(b16 + chk2)
    nineQuads = [et18[i*4:(i+1)*4] for i in range(9)]
    first4  = ' '.join(nineQuads[:4])
    second4 = ' '.join(nineQuads[4:8])
@@ -1471,7 +1504,7 @@ def secondsToHumanTime(nSec):
       return '1.5 '+strPieces[1]+'s'
    else:
       return '%d %ss' % (int(strPieces[0]+0.5), strPieces[1])
-      
+
 def bytesToHumanSize(nBytes):
    if nBytes<KILOBYTE:
       return '%d bytes' % nBytes
@@ -1543,7 +1576,7 @@ def verifyChecksum(binaryStr, chksum, hashFunc=hash256, fixIfNecessary=True, \
    This method will check the CHECKSUM ITSELF for errors, but not correct them.
    However, for PyBtcWallet serialization, if I determine that it is a chksum
    error and simply return the original string, then PyBtcWallet will correct
-   the checksum in the file, next time it reserializes the data. 
+   the checksum in the file, next time it reserializes the data.
    """
    bin1 = str(binaryStr)
    bin2 = binary_switchEndian(binaryStr)
@@ -1634,7 +1667,7 @@ def CreateQRMatrix(dataToEncode, errLevel='L'):
          # The matrix is transposed by default, from what we normally expect
          tempList[c] = 1 if qr.isDark(c,r) else 0
       qrmtrx.append(tempList)
-   
+
    return [qrmtrx, modCt]
 
 
@@ -1835,12 +1868,12 @@ SECP256K1_GY    = 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10
 class FiniteField(object):
    """
    Create a simple, prime-order FiniteField.  Because this is used only
-   to encode data of fixed width, I enforce prime-order by hardcoding 
+   to encode data of fixed width, I enforce prime-order by hardcoding
    primes, and you just pick the data width (in bytes).  If your desired
    data width is not here,  simply find a prime number very close to 2^N,
    and add it to the PRIMES map below.
 
-   This will be used for Shamir's Secret Sharing scheme.  Encode your 
+   This will be used for Shamir's Secret Sharing scheme.  Encode your
    data as the coeffient of finite-field polynomial, and store points
    on that polynomial.  The order of the polynomial determines how
    many points are needed to recover the original secret.
@@ -1863,7 +1896,7 @@ class FiniteField(object):
               256:  2**2048-1157  }
 
    def __init__(self, nbytes):
-      if not self.PRIMES.has_key(nbytes): 
+      if not self.PRIMES.has_key(nbytes):
          LOGERROR('No primes available for size=%d bytes', nbytes)
          self.prime = None
          raise FiniteFieldError
@@ -1872,13 +1905,13 @@ class FiniteField(object):
 
    def add(self,a,b):
       return (a+b) % self.prime
-   
+
    def subtract(self,a,b):
       return (a-b) % self.prime
-   
+
    def mult(self,a,b):
       return (a*b) % self.prime
-   
+
    def power(self,a,b):
       result = 1
       while(b>0):
@@ -1886,47 +1919,47 @@ class FiniteField(object):
          result = (result * (a if x else 1)) % self.prime
          a = a*a % self.prime
       return result
-   
+
    def powinv(self,a):
       """ USE ONLY PRIME MODULUS """
       return self.power(a,self.prime-2)
-   
+
    def divide(self,a,b):
       """ USE ONLY PRIME MODULUS """
       baddinv = self.powinv(b)
       return self.mult(a,baddinv)
-   
+
    def mtrxrmrowcol(self,mtrx,r,c):
       if not len(mtrx) == len(mtrx[0]):
          LOGERROR('Must be a square matrix!')
          return []
       sz = len(mtrx)
       return [[mtrx[i][j] for j in range(sz) if not j==c] for i in range(sz) if not i==r]
-      
-   
+
+
    ################################################################################
    def mtrxdet(self,mtrx):
       if len(mtrx)==1:
          return mtrx[0][0]
-   
+
       if not len(mtrx) == len(mtrx[0]):
          LOGERROR('Must be a square matrix!')
          return -1
-   
+
       result = 0;
       for i in range(len(mtrx)):
          mult     = mtrx[0][i] * (-1 if i%2==1 else 1)
          subdet   = self.mtrxdet(self.mtrxrmrowcol(mtrx,0,i))
          result   = self.add(result, self.mult(mult,subdet))
       return result
-     
+
    ################################################################################
    def mtrxmultvect(self,mtrx, vect):
       M,N = len(mtrx), len(mtrx[0])
       if not len(mtrx[0])==len(vect):
          LOGERROR('Mtrx and vect are incompatible: %dx%d, %dx1', M, N, len(vect))
       return [ sum([self.mult(mtrx[i][j],vect[j]) for j in range(N)])%self.prime for i in range(M) ]
-   
+
    ################################################################################
    def mtrxmult(self,m1, m2):
       M1,N1 = len(m1), len(m1[0])
@@ -1935,13 +1968,13 @@ class FiniteField(object):
          LOGERROR('Mtrx and vect are incompatible: %dx%d, %dx%d', M1,N1, M2,N2)
       inner = lambda i,j: sum([self.mult(m1[i][k],m2[k][j]) for k in range(N1)])
       return [ [inner(i,j)%self.prime for j in range(N1)] for i in range(M1) ]
-   
+
    ################################################################################
    def mtrxadjoint(self,mtrx):
       sz = len(mtrx)
       inner = lambda i,j: self.mtrxdet(self.mtrxrmrowcol(mtrx,i,j))
       return [[((-1 if (i+j)%2==1 else 1)*inner(j,i))%self.prime for j in range(sz)] for i in range(sz)]
-      
+
    ################################################################################
    def mtrxinv(self,mtrx):
       det = self.mtrxdet(mtrx)
@@ -1953,7 +1986,7 @@ class FiniteField(object):
 ################################################################################
 def SplitSecret(secret, needed, pieces, nbytes=None, use_random_x=False):
    if not isinstance(secret, basestring):
-      secret = secret.toBinStr() 
+      secret = secret.toBinStr()
 
    if nbytes==None:
       nbytes = len(secret)
@@ -1992,7 +2025,7 @@ def SplitSecret(secret, needed, pieces, nbytes=None, use_random_x=False):
          term = ff.mult(othernum[i], ff.power(x,e))
          polyout = ff.add(polyout, term)
       return polyout
-      
+
    for i in range(pieces):
       x = othernum[i+2] if use_random_x else i+1
       fragments.append( [x, poly(x)] )
@@ -2020,7 +2053,7 @@ def ReconstructSecret(fragments, needed, nbytes):
    minv = ff.mtrxinv(m)
    outvect = ff.mtrxmultvect(minv,v)
    return int_to_binary(outvect[0], nbytes, BIGENDIAN)
-         
+
 
 ################################################################################
 def createTestingSubsets( fragIndices, M, maxTestCount=20):
@@ -2038,7 +2071,7 @@ def createTestingSubsets( fragIndices, M, maxTestCount=20):
    else:
       LOGINFO('Test reconstruct %s-of-N, with %s fragments' % (M, numIdx))
       subs = []
-   
+
       # Compute the number of possible subsets.  This is stable because we
       # shouldn't ever have more than 12 fragments
       fact = math.factorial
@@ -2079,22 +2112,22 @@ def testReconstructSecrets(fragMap, M, maxTestCount=20):
 
    testResults = []
    for subset in subs:
-      fragSubset = [fragMap[i][:] for i in subset] 
-      
+      fragSubset = [fragMap[i][:] for i in subset]
+
       recon = ReconstructSecret(fragSubset, M, nBytes)
       testResults.append((subset, recon))
 
    return isRandom, testResults
-         
-   
 
 
-   
+
+
+
 ################################################################################
 def ComputeFragIDBase58(M, wltIDBin):
    mBin4   = int_to_binary(M, widthBytes=4, endOut=BIGENDIAN)
    fragBin = hash256(wltIDBin + mBin4)[:4]
-   fragB58 = str(M) + binary_to_base58(fragBin) 
+   fragB58 = str(M) + binary_to_base58(fragBin)
    return fragB58
 
 ################################################################################
@@ -2102,24 +2135,24 @@ def ComputeFragIDLineHex(M, index, wltIDBin, isSecure=False, addSpaces=False):
    fragID  = int_to_hex((128+M) if isSecure else M)
    fragID += int_to_hex(index+1)
    fragID += binary_to_hex(wltIDBin)
-   
+
    if addSpaces:
       fragID = ' '.join([fragID[i*4:(i+1)*4] for i in range(4)])
 
    return fragID
-   
+
 
 ################################################################################
 def ReadFragIDLineBin(binLine):
    doMask = binary_to_int(binLine[0]) > 127
    M      = binary_to_int(binLine[0]) & 0x7f
-   fnum   = binary_to_int(binLine[1]) 
+   fnum   = binary_to_int(binLine[1])
    wltID  = binLine[2:]
-   
+
    idBase58 = ComputeFragIDBase58(M, wltID) + '-#' + str(fnum)
    return (M, fnum, wltID, doMask, idBase58)
 
-    
+
 ################################################################################
 def ReadFragIDLineHex(hexLine):
    return ReadFragIDLineBin( hex_to_binary(hexLine.strip().replace(' ','')))
@@ -2177,22 +2210,22 @@ def convertKeyDataToAddress(privKey=None, pubKey=None):
 ################################################################################
 def decodeMiniPrivateKey(keyStr):
    """
-   Converts a 22, 26 or 30-character Base58 mini private key into a 
-   32-byte binary private key.  
+   Converts a 22, 26 or 30-character Base58 mini private key into a
+   32-byte binary private key.
    """
    if not len(keyStr) in (22,26,30):
       return ''
 
    keyQ = keyStr + '?'
    theHash = sha256(keyQ)
-   
+
    if binary_to_hex(theHash[0]) == '01':
       raise KeyDataError, 'PBKDF2-based mini private keys not supported!'
    elif binary_to_hex(theHash[0]) != '00':
       raise KeyDataError, 'Invalid mini private key... double check the entry'
-   
+
    return sha256(keyStr)
-   
+
 
 ################################################################################
 def parsePrivateKeyData(theStr):
@@ -2221,7 +2254,7 @@ def parsePrivateKeyData(theStr):
             keyType = 'Plain Base58'
          else:
             raise BadAddressError, 'Unrecognized key data'
-      elif canBeHex:  
+      elif canBeHex:
          binEntry = hex_to_binary(theStr)
          keyType = 'Plain Hex'
       else:
@@ -2233,7 +2266,7 @@ def parsePrivateKeyData(theStr):
             keydata = binEntry[:32 ]
             chk     = binEntry[ 32:]
             binEntry = verifyChecksum(keydata, chk)
-            if not isMini: 
+            if not isMini:
                keyType = 'Raw %s with checksum' % keyType.split(' ')[1]
          else:
             # Assume leading 0x80 byte, and 4 byte checksum
@@ -2241,7 +2274,7 @@ def parsePrivateKeyData(theStr):
             chk     = binEntry[  1+32:]
             binEntry = verifyChecksum(keydata, chk)
             binEntry = binEntry[1:]
-            if not isMini: 
+            if not isMini:
                keyType = 'Standard %s key with checksum' % keyType.split(' ')[1]
 
          if binEntry=='':
@@ -2250,7 +2283,7 @@ def parsePrivateKeyData(theStr):
            (len(binEntry)==37 and binEntry[-5]=='\x01'):
          raise CompressedKeyError, 'Compressed Public keys not supported!'
       return binEntry, keyType
-   
+
 
 
 ################################################################################
@@ -2278,16 +2311,16 @@ def parseBitcoinURI(theStr):
       return {}
 
    uriData = {}
-   
+
    try:
       uriData['address'] = parts[1]
       for p in parts[2:]:
          if not '=' in p:
             raise BadURIError, 'Unrecognized URI field: "%s"'%p
-            
+
          # All fields must be "key=value" making it pretty easy to parse
          key, value = p.split('=')
-   
+
          # A few
          if key.lower()=='amount':
             uriData['amount'] = str2coin(value)
@@ -2297,13 +2330,13 @@ def parseBitcoinURI(theStr):
             uriData[key] = value
    except:
       return {}
-   
+
    return uriData
 
 
 ################################################################################
 def uriReservedToPercent(theStr):
-   """ 
+   """
    Convert from a regular string to a percent-encoded string
    """
    #Must replace '%' first, to avoid recursive (and incorrect) replacement!
@@ -2316,24 +2349,24 @@ def uriReservedToPercent(theStr):
 
 ################################################################################
 def uriPercentToReserved(theStr):
-   """ 
-   This replacement direction is much easier!
-   Convert from a percent-encoded string to a 
    """
-   
+   This replacement direction is much easier!
+   Convert from a percent-encoded string to a
+   """
+
    parts = theStr.split('%')
    if len(parts)>1:
       for p in parts[1:]:
          parts[0] += chr( hex_to_int(p[:2]) ) + p[2:]
    return parts[0][:]
-   
+
 
 ################################################################################
 def createBitcoinURI(addr, amt=None, msg=None):
-   uriStr = 'bitcoin:%s' % addr 
+   uriStr = 'bitcoin:%s' % addr
    if amt or msg:
       uriStr += '?'
-   
+
    if amt:
       uriStr += 'amount=%s' % coin2str(amt, maxZeros=0).strip()
 
@@ -2483,8 +2516,8 @@ class PyBtcAddress(object):
    #############################################################################
    def isCompressed(self):
       # Armory wallets (v1.35) do not support compressed keys
-      return False 
-   
+      return False
+
 
    #############################################################################
    def touch(self, unixTime=None, blkNum=None):
@@ -2644,7 +2677,7 @@ class PyBtcAddress(object):
          self.setInitializationVector(IV16)
       elif generateIVIfNecessary and self.binInitVect16.getSize()<16:
          self.setInitializationVector(random=True)
-   
+
 
    #############################################################################
    def isKeyEncryptionEnabled(self):
@@ -2836,7 +2869,7 @@ class PyBtcAddress(object):
             # We should usually check that keys match, but may choose to skip
             # if we have a lot of keys to load
             # NOTE:  I run into this error if I fill the keypool without first
-            #        unlocking the wallet.  I'm not sure why it doesn't work 
+            #        unlocking the wallet.  I'm not sure why it doesn't work
             #        when locked (it should), but this wallet format has been
             #        working flawless for almost a year... and will be replaced
             #        soon, so I won't sweat it.
@@ -2903,7 +2936,7 @@ class PyBtcAddress(object):
       If an encryption key IS provided, then we unlock the address just long
       enough to sign the message and then re-lock it
       """
-      
+
       TimerStart('generateDERSignature')
 
       if not self.hasPrivKey():
@@ -3895,7 +3928,7 @@ def getTxOutMultiSigInfo(binScript):
          binChunk = bup.get(BINARY_CHUNK, nBytes)
       else:
          opcodes.append(nextByte)
-         
+
 
       if len(binChunk) == 20:
          addr160List.append(binChunk)
@@ -3930,7 +3963,7 @@ def getTxOutMultiSigInfo(binScript):
    except:
       pass
 
-      
+
    # Next try A-or-(B-and-C) transaction (not implemented yet
    # I'm not sure how these transactions will look
    try:
@@ -4282,12 +4315,12 @@ class PyTx(object):
       newTx = self.copy()
       newTx.inputs = []
       for txIn in self.inputs:
-         paddingRemovedFromTxIn, newTxIn  = txIn.minimizeDERSignaturePadding() 
+         paddingRemovedFromTxIn, newTxIn  = txIn.minimizeDERSignaturePadding()
          if paddingRemovedFromTxIn:
             paddingRemoved = True
             newTx.inputs.append(newTxIn)
          else:
-            newTx.inputs.append(txIn)            
+            newTx.inputs.append(txIn)
       return paddingRemoved, newTx.copy()
 
    def getHash(self):
@@ -4297,8 +4330,8 @@ class PyTx(object):
       return binary_to_hex(self.getHash(), endOut=endianness)
 
    def makeRecipientsList(self):
-      """ 
-      Make a list of lists, each one containing information about 
+      """
+      Make a list of lists, each one containing information about
       an output in this tx.  Usually contains
          [ScriptType, Value, Addr160]
       May include more information if any of the scripts are multi-sig,
@@ -4479,7 +4512,7 @@ class PyBlockHeader(object):
    def fetchCpp(self):
       """ Convert a raw blockheader with no context, to a C++ BlockHeader """
       return TheBDM.getHeaderByHash(self.getHash())
-      
+
 
    def pprint(self, nIndent=0, endian=BIGENDIAN):
       indstr = indent*nIndent
@@ -4662,14 +4695,14 @@ def getFeeForTx(txHash):
       for i in range(txref.getNumTxOut()):
          valOut += txref.getTxOutCopy(i).getValue()
       return valIn - valOut
-      
+
 
 #############################################################################
 def determineSentToSelfAmt(le, wlt):
    """
    NOTE:  this method works ONLY because we always generate a new address
           whenever creating a change-output, which means it must have a
-          higher chainIndex than all other addresses.  If you did something 
+          higher chainIndex than all other addresses.  If you did something
           creative with this tx, this may not actually work.
    """
    amt = 0
@@ -4691,7 +4724,7 @@ def determineSentToSelfAmt(le, wlt):
             maxChainIndex = addr.chainIndex
             txOutChangeVal = txref.getTxOutCopy(i).getValue()
             changeIndex = i
-                  
+
       amt = valSum - txOutChangeVal
    return (amt, changeIndex)
 
@@ -5349,14 +5382,14 @@ def getUnspentTxOutsForAddr160List(addr160List, utxoType='Sweep', startBlk=-1, \
                                  abortIfBDMBusy=False):
    """
 
-   You have a list of addresses (or just one) and you want to get all the 
+   You have a list of addresses (or just one) and you want to get all the
    unspent TxOuts for it.  This can either be for computing its balance, or
    for sweeping the address(es).
 
    This will return a list of pairs of [addr160, utxoObj]
    This isn't the most efficient method for producing the pairs
 
-   NOTE:  At the moment, this only gets STANDARD TxOuts... non-std uses 
+   NOTE:  At the moment, this only gets STANDARD TxOuts... non-std uses
           a different BDM call
 
    This method will return null output if the BDM is currently in the
@@ -5366,7 +5399,7 @@ def getUnspentTxOutsForAddr160List(addr160List, utxoType='Sweep', startBlk=-1, \
 
    Multi-threading update:
 
-      This one-stop-shop method has to be blocking.  Instead, you might want 
+      This one-stop-shop method has to be blocking.  Instead, you might want
       to register the address and rescan asynchronously, skipping this method
       entirely:
 
@@ -5376,7 +5409,7 @@ def getUnspentTxOutsForAddr160List(addr160List, utxoType='Sweep', startBlk=-1, \
          TheBDM.rescanBlockchain(wait=False)
 
          <... do some other stuff ...>
-   
+
          if TheBDM.getBDMState()=='BlockchainReady':
             TheBDM.updateWalletsAfterScan(wait=True) # fast after a rescan
             bal      = cppWlt.getBalance('Spendable')
@@ -5388,14 +5421,14 @@ def getUnspentTxOutsForAddr160List(addr160List, utxoType='Sweep', startBlk=-1, \
          (TheBDM.isScanning() and not abortIfBDMBusy):
       if not isinstance(addr160List, (list,tuple)):
          addr160List = [addr160List]
-   
+
       cppWlt = Cpp.BtcWallet()
       for addr in addr160List:
          if isinstance(addr, PyBtcAddress):
             cppWlt.addScrAddress_1_(Hash160ToScrAddr(addr.getAddr160()))
          else:
             cppWlt.addScrAddress_1_(Hash160ToScrAddr(addr))
-   
+
       TheBDM.registerWallet(cppWlt)
       currBlk = TheBDM.getTopBlockHeight()
       TheBDM.scanBlockchainForTx(cppWlt, currBlk+1 if startBlk==-1 else startBlk)
@@ -5595,10 +5628,10 @@ def PyCreateAndSignTx(srcTxOuts, dstAddrsVals):
 # These would normally be defined by C++ and fed in, but I've recreated
 # the C++ class here... it's really just a container, anyway
 #
-# TODO:  LevelDB upgrade: had to upgrade this class to use arbitrary 
+# TODO:  LevelDB upgrade: had to upgrade this class to use arbitrary
 #        ScrAddress "notation", even though everything else on the python
 #        side expects pure hash160 values.  For now, it looks like it can
-#        handle arbitrary scripts, but the CheckHash160() calls will 
+#        handle arbitrary scripts, but the CheckHash160() calls will
 #        (correctly) throw errors if you don't.  We can upgrade this in
 #        the future.
 class PyUnspentTxOut(object):
@@ -6108,7 +6141,7 @@ def PySelectCoins(unspentTxOutInfo, targetOutVal, minFee=0, numRand=10, margin=C
    select coins based on the desired target output and the min tx fee.  Then
    ranks the various solutions and picks the best one
    """
-   
+
    TimerStart('PySelectCoins')
 
    if sum([u.getValue() for u in unspentTxOutInfo]) < targetOutVal:
@@ -6181,9 +6214,9 @@ def PySelectCoins(unspentTxOutInfo, targetOutVal, minFee=0, numRand=10, margin=C
       utxoSmallToLarge = sorted(unspentTxOutInfo, key=getPriority)
       utxoSmToLgIDs = [getUtxoID(utxo) for utxo in utxoSmallToLarge]
       finalSelectIDs = [getUtxoID(utxo) for utxo in finalSelection]
-      
+
       for other in utxoSmallToLarge:
-         
+
          # Skip it if it is already selected
          if getUtxoID(other) in finalSelectIDs:
             continue
@@ -6191,7 +6224,7 @@ def PySelectCoins(unspentTxOutInfo, targetOutVal, minFee=0, numRand=10, margin=C
          # We only consider UTXOs that won't link any new addresses together
          if not utxoToHash160(other) in alreadyUsedAddr:
             continue
-         
+
          # Avoid zero-conf inputs altogether
          if other.getNumConfirm() == 0:
             continue
@@ -6200,7 +6233,7 @@ def PySelectCoins(unspentTxOutInfo, targetOutVal, minFee=0, numRand=10, margin=C
          if getPriority(other) > ONE_BTC*144:
             continue
 
-         finalSelection.append(other) 
+         finalSelection.append(other)
          if len(finalSelection)>=IDEAL_NUM_INPUTS:
             break
 
@@ -6281,22 +6314,22 @@ class PyTxDistProposal(object):
    an unsigned transaction, that may require the signatures of
    multiple parties before being accepted by the network.
 
-   This technique (https://en.bitcoin.it/wiki/BIP_0010) is that 
-   once TxDP is created, the system signing it only needs the 
+   This technique (https://en.bitcoin.it/wiki/BIP_0010) is that
+   once TxDP is created, the system signing it only needs the
    ECDSA private keys and nothing else.   This enables the device
    providing the signatures to be extremely lightweight, since it
    doesn't have to store the blockchain.
 
    For a given TxDP, we will be storing the following structure
-   in memory.  Use a 3-input tx as an example, with the first 
+   in memory.  Use a 3-input tx as an example, with the first
    being a 2-of-3 multi-sig transaction (unsigned)
-      
-      self.scriptTypes    = [TXOUT_SCRIPT_MULTISIG, 
-                             TXOUT_SCRIPT_STANDARD,   
+
+      self.scriptTypes    = [TXOUT_SCRIPT_MULTISIG,
+                             TXOUT_SCRIPT_STANDARD,
                              TXOUT_SCRIPT_STANDARD]
 
-      self.inputValues    = [ 2313000000, 
-                              400000000, 
+      self.inputValues    = [ 2313000000,
+                              400000000,
                               1000000000]
 
       self.signatures     = [ ['', '', ''],
@@ -6310,7 +6343,7 @@ class PyTxDistProposal(object):
       # Usually only have public keys on multi-sig TxOuts
       self.inPubKeyLists  = [ [pubKey1, pubKey2, pubKey3],
                               ['']
-                              ['']         ]   
+                              ['']         ]
 
       self.numSigsNeeded  = [ 2
                               1
@@ -6319,27 +6352,27 @@ class PyTxDistProposal(object):
       self.relevantTxMap  = [ prevTx0Hash: prevTx0.serialize(),
                               prevTx1Hash: prevTx1.serialize(),
                               prevTx2Hash: prevTx2.serialize() ]
-      
+
    UPDATE Feb 2012:  Before Jan 29, 2012, BIP 0010 used a different technique
                      for communicating blockchain information to the offline
                      device.  This is no longer the case
-                     
+
                      Gregory Maxwell identified a reasonable-enough security
-                     risk with the fact that previous BIP 0010 cannot guarantee 
+                     risk with the fact that previous BIP 0010 cannot guarantee
                      validity of stated input values in a TxDP.  This is solved
-                     by adding the supporting transactions to the TxDP, so that 
-                     the signing device can get the input values from those 
-                     tx and verify the hash matches the OutPoint on the tx 
-                     being signed (which *is* part of what's being signed).  
+                     by adding the supporting transactions to the TxDP, so that
+                     the signing device can get the input values from those
+                     tx and verify the hash matches the OutPoint on the tx
+                     being signed (which *is* part of what's being signed).
                      The concern was that someone could manipulate your online
-                     computer to misrepresent the inputs, and cause you to 
+                     computer to misrepresent the inputs, and cause you to
                      send you entire wallet to tx-fees.  Not the most useful
                      attack (for someone trying to steal your coins), but it is
                      still a risk that can be avoided by adding some "bloat" to
                      the TxDP
 
-                     
-   
+
+
    """
    #############################################################################
    def __init__(self, pytx=None, txMap={}):
@@ -6371,7 +6404,7 @@ class PyTxDistProposal(object):
       self.relevantTxMap  = {}  # needed to support input values of each TxIn
 
       if len(txMap)==0 and not TheBDM.getBDMState()=='BlockchainReady':
-         # TxDP includes the transactions that supply the inputs to this 
+         # TxDP includes the transactions that supply the inputs to this
          # transaction, so the BDM needs to be available to fetch those.
          raise BlockchainUnavailableError, ('Must input supporting transactions '
                                             'or access to the blockchain, to '
@@ -6398,9 +6431,9 @@ class PyTxDistProposal(object):
          else:
             raise InvalidHashError, 'No previous-tx data available for TxDP'
          self.relevantTxMap[txhash] = pyPrevTx.copy()
-               
-           
-         # Now we have the previous transaction.  We need to pull the 
+
+
+         # Now we have the previous transaction.  We need to pull the
          # script out of the specific TxOut so we know how it can be
          # spent.
          script =  pyPrevTx.outputs[txidx].binScript
@@ -6433,8 +6466,8 @@ class PyTxDistProposal(object):
    #############################################################################
    def createFromTxOutSelection(self, utxoSelection, recip160ValPairs, txMap={}):
       """
-      This creates a TxDP for a standard transaction from a list of inputs and 
-      a list of recipient-value-pairs.  
+      This creates a TxDP for a standard transaction from a list of inputs and
+      a list of recipient-value-pairs.
 
       NOTE:  I have modified this so that if the "recip" is not a 20-byte binary
              string, it is instead interpretted as a SCRIPT -- which could be
@@ -6503,7 +6536,7 @@ class PyTxDistProposal(object):
       if addr:
          self.signatures[validIdx].append(binSig)
          return True
-   
+
       return False
 
 
@@ -6512,7 +6545,7 @@ class PyTxDistProposal(object):
       """
       For standard transaction types, the signature field is actually the raw
       script to be plugged into the final transaction that allows it to eval
-      to true -- except for multi-sig transactions.  We have to mess with the 
+      to true -- except for multi-sig transactions.  We have to mess with the
       data a little bit if we want to use the script-processor to verify the
       signature.  Instead, we will use the crypto ops directly.
 
@@ -6543,28 +6576,28 @@ class PyTxDistProposal(object):
                   txCopy.inputs[i].binScript = ''
                else:
                   txCopy.inputs[i].binScript = self.txOutScripts[i]
-   
+
             hashCode   = binary_to_int(sigStr[-1])
             hashCode4  = int_to_binary(hashcode, widthBytes=4)
             preHashMsg = txCopy.serialize() + hashCode4
             if not hashCode==1:
                raise NotImplementedError, 'Non-standard hashcodes not supported!'
-   
+
             # Now check all public keys in the multi-sig TxOut script
             for i,pubkey in enumerate(self.inPubKeyLists):
                tempAddr = PyBtcAddress().createFromPublicKeyData(pubkey)
                if tempAddr.verifyDERSignature(preHashMsg, sigStr):
                   return txInIdx, i, hash160(pubkey)
-         
+
 
       if checkAllInputs:
          for i in range(len(self.pytxObj.inputs)):
             idx, pos, addr160 = self.processSignature(sigStr, i)
             if idx>0:
                return idx, pos, addr160
-         
+
       return -1,-1,''
-      
+
 
    #############################################################################
    def checkTxHasEnoughSignatures(self, alsoVerify=False):
@@ -6583,10 +6616,10 @@ class PyTxDistProposal(object):
          return False
 
       return True
-      
-      
-      
-            
+
+
+
+
 
    #############################################################################
    def getBroadcastTxIfReady(self):
@@ -6595,15 +6628,15 @@ class PyTxDistProposal(object):
       except SignatureError, msg:
          return None
       # Let all other exceptions go on up the chain
-   
 
-   
+
+
    #############################################################################
    def isSigValidForInput(self, i):
       """
-      For now we assume that each input only requires one signature, and thus 
-      we have it or we don't.  In the future, this will be expanded for the 
-      multi-sig case, and return a list signatures needed and which ones are 
+      For now we assume that each input only requires one signature, and thus
+      we have it or we don't.  In the future, this will be expanded for the
+      multi-sig case, and return a list signatures needed and which ones are
       signed/valid
       """
       psp = PyScriptProcessor()
@@ -6616,7 +6649,7 @@ class PyTxDistProposal(object):
       """
       This converts the TxDP back into a regular PyTx object, verifying
       signatures as it goes.  Throw an error if the TxDP does not have
-      the complete set of valid signatures needed to be accepted by the 
+      the complete set of valid signatures needed to be accepted by the
       network.
       """
       if not self.checkTxHasEnoughSignatures():
@@ -6628,7 +6661,7 @@ class PyTxDistProposal(object):
 
       # Put the txIn scripts together (non-trivial for multi-sig cases)
       # then run them through the script evaluator to make sure they
-      # are valid. 
+      # are valid.
       psp = PyScriptProcessor()
       for i,txin in enumerate(finalTx.inputs):
          if self.scriptTypes[i] in (TXOUT_SCRIPT_STANDARD, TXOUT_SCRIPT_COINBASE):
@@ -6666,7 +6699,7 @@ class PyTxDistProposal(object):
       pieces = ['', 'TXDIST', binary_to_hex(MAGIC_BYTES), self.uniqueB58, \
                       int_to_hex(dpsz, widthBytes=2, endOut=BIGENDIAN)]
       txdpLines.append('_'.join(pieces))
-      
+
       # First tx is always the tx being created/signed, others are supporting tx
       try:
          txList = [self.pytxObj.serialize()]
@@ -6701,7 +6734,7 @@ class PyTxDistProposal(object):
       txdpLines.append( endline )
       LOGPPRINT(self, logging.DEBUG)
       return '\n'.join(txdpLines)
-      
+
 
    #############################################################################
    def unserializeAscii(self, asciiStr):
@@ -6732,7 +6765,7 @@ class PyTxDistProposal(object):
          dpser += line
          line = nextLine(L)
 
-      txListBin = hex_to_binary(dpser) 
+      txListBin = hex_to_binary(dpser)
       binUnpacker = BinaryUnpacker(txListBin)
       txList = []
       targetTx = PyTx().unserialize(binUnpacker)
@@ -6754,18 +6787,18 @@ class PyTxDistProposal(object):
          raise NetworkIDError, 'TxDP is for diff blockchain! (%s)' % \
                                                          BLOCKCHAINS[magic]
 
-      # At this point, we should have a TxDP constructed, now we need to 
+      # At this point, we should have a TxDP constructed, now we need to
       # simply scan the rest of the serialized structure looking for any
       # signatures that may be included
-      while not 'END-TRANSACTION' in line: 
+      while not 'END-TRANSACTION' in line:
          [iin, val] = line.split('_')[2:]
          iin = int(iin)
          self.inputValues[iin] = str2coin(val)
-         
+
          line = nextLine(L)
          while '_SIG_' in line:
             addrB58, sz, sigszHex = line.split('_')[2:]
-            sz = int(sz) 
+            sz = int(sz)
             sigsz = hex_to_int(sigszHex, endIn=BIGENDIAN)
             hexSig = ''
             line = nextLine(L)
@@ -6780,12 +6813,12 @@ class PyTxDistProposal(object):
                LOGWARN('Invalid sig: Input %d, addr=%s' % (iin, addrB58))
             elif not hash160_to_addrStr(addr160)== addrB58:
                LOGERROR('Listed addr does not match computed addr')
-               raise BadAddressError 
+               raise BadAddressError
             # If we got here, the signature is valid!
             self.signatures[iin][sigOrder] = binSig
 
       return self
-      
+
 
 
    #############################################################################
@@ -6815,8 +6848,8 @@ class PyTxDistProposal(object):
             print 'MULTI-SIG-SCRIPT:%d-of-%d' % mstype
             for addr in addrs:
                print indent*2, hash160_to_addrStr(addr)
-            
-         
+
+
 
 # Random method for creating
 def touchFile(fname):
@@ -6856,7 +6889,7 @@ def HardcodedKeyMaskParams():
    paramMap = {}
 
    # Nothing up my sleeve!  Need some hardcoded random numbers to use for
-   # encryption IV and salt.  Using the first 256 digits of Pi for the 
+   # encryption IV and salt.  Using the first 256 digits of Pi for the
    # the IV, and first 256 digits of e for the salt (hashed)
    digits_pi = ( \
       'ARMORY_ENCRYPTION_INITIALIZATION_VECTOR_'
@@ -6870,7 +6903,7 @@ def HardcodedKeyMaskParams():
       '2407663035354759457138217852516642742746639193200305992181741359'
       '6629043572900334295260595630738132328627943490763233829880753195'
       '2510190115738341879307021540891499348841675092447614606680822648')
-      
+
    paramMap['IV']    = SecureBinaryData( hash256(digits_pi)[:16] )
    paramMap['SALT']  = SecureBinaryData( hash256(digits_e) )
    paramMap['KDFBYTES'] = long(16*MEGABYTE)
@@ -6880,7 +6913,7 @@ def HardcodedKeyMaskParams():
          secret = SecureBinaryData(secret)
       bin7 = HMAC512(secret.getHash256(), paramMap['SALT'].toBinStr())[:7]
       out,bin7 = SecureBinaryData(binary_to_base58(bin7 + hash256(bin7)[0])), None
-      return out 
+      return out
 
    def hardcodeCheckPassphrase(passphrase):
       if isinstance(passphrase, basestring):
@@ -6894,7 +6927,7 @@ def HardcodedKeyMaskParams():
    def hardcodeApplyKdf(secret):
       if isinstance(secret, basestring):
          secret = SecureBinaryData(secret)
-      kdf = KdfRomix() 
+      kdf = KdfRomix()
       kdf.usePrecomputedKdfParams(paramMap['KDFBYTES'], 1, paramMap['SALT'])
       return kdf.DeriveKey(secret)
 
@@ -6971,7 +7004,7 @@ class PyBtcWallet(object):
    binUniqueID -- (6)   first 5 bytes of first address in wallet
                         (rootAddr25Bytes[:5][::-1]), reversed
                         This is not intended to look like the root addr str
-                        and is reversed to avoid having all wallet IDs start 
+                        and is reversed to avoid having all wallet IDs start
                         with the same characters (since the network byte is front)
    create date -- (8)   unix timestamp of when this wallet was created
                         (actually, the earliest creation date of any addr
@@ -7015,7 +7048,7 @@ class PyBtcWallet(object):
    We do this by copying the wallet file, and creating a walletUpdateFailed
    file.  We then modify the original, verify its integrity, and then delete
    the walletUpdateFailed file.  Then we create a backupUpdateFailed flag,
-   do the identical update on the backup file, and delete the failed flag. 
+   do the identical update on the backup file, and delete the failed flag.
    This guaranatees that no matter which nanosecond the power goes out,
    there will be an uncorrupted wallet and we know which one it is.
 
@@ -7082,7 +7115,7 @@ class PyBtcWallet(object):
       self.uniqueIDB58 = ''   # Base58 version of reversed-uniqueIDBin
       self.lastComputedChainAddr160  = ''
       self.lastComputedChainIndex = 0
-      self.highestUsedChainIndex  = 0 
+      self.highestUsedChainIndex  = 0
 
       # All PyBtcAddress serializations are exact same size, figure it out now
       self.pybtcaddrSize = len(PyBtcAddress().serialize())
@@ -7090,7 +7123,7 @@ class PyBtcWallet(object):
 
       # All BDM calls by default go on the multi-thread-queue.  But if the BDM
       # is the one calling the PyBtcWallet methods, it will deadlock if it uses
-      # the queue.  Therefore, the BDM will set this flag before making any 
+      # the queue.  Therefore, the BDM will set this flag before making any
       # calls, which will tell PyBtcWallet to use __direct methods.
       self.calledFromBDM = False
 
@@ -7151,7 +7184,7 @@ class PyBtcWallet(object):
       be rescanned, then call TheBDM.rescanBlockchain or TheBDM.loadBlockchain
 
       If this method is called from the BDM itself, calledFromBDM will signal
-      to use the BDM methods directly, not the queue.  This will deadlock 
+      to use the BDM methods directly, not the queue.  This will deadlock
       otherwise.
       """
 
@@ -7166,7 +7199,7 @@ class PyBtcWallet(object):
             startBlk = self.lastSyncBlockNum + 1
 
          # calledFromBDM means that ultimately the BDM itself called this
-         # method and is blocking waiting for it.  So we can't use the 
+         # method and is blocking waiting for it.  So we can't use the
          # BDM-thread queue, must call its methods directly
          if self.calledFromBDM:
             TheBDM.scanBlockchainForTx_bdm_direct(self.cppWallet, startBlk)
@@ -7187,7 +7220,7 @@ class PyBtcWallet(object):
    def syncWithBlockchainLite(self, startBlk=None):
       """
       This is just like a regular sync, but it won't rescan the whole blockchain
-      if the wallet is dirty -- if addresses were imported recently, it will 
+      if the wallet is dirty -- if addresses were imported recently, it will
       still only scan what the blockchain picked up on the last scan.  Use the
       non-lite version to allow a full scan.
       """
@@ -7203,7 +7236,7 @@ class PyBtcWallet(object):
             startBlk = self.lastSyncBlockNum + 1
 
          # calledFromBDM means that ultimately the BDM itself called this
-         # method and is blocking waiting for it.  So we can't use the 
+         # method and is blocking waiting for it.  So we can't use the
          # BDM-thread queue, must call its methods directly
          if self.calledFromBDM:
             TheBDM.scanRegisteredTxForWallet_bdm_direct(self.cppWallet, startBlk)
@@ -7225,7 +7258,7 @@ class PyBtcWallet(object):
       if len(comment)>0:
          return comment
 
-      # SWIG BUG! 
+      # SWIG BUG!
       # http://sourceforge.net/tracker/?func=detail&atid=101645&aid=3403085&group_id=1645
       # Apparently, using the -threads option when compiling the swig module
       # causes the "for i in vector<...>:" mechanic to sometimes throw seg faults!
@@ -7236,7 +7269,7 @@ class PyBtcWallet(object):
             return comment
 
       return ''
-      
+
    #############################################################################
    def getCommentForTxList(self, a160, txhashList):
       comment = self.getComment(a160)
@@ -7259,7 +7292,7 @@ class PyBtcWallet(object):
          print len(txlist)
          for rtx in txlist:
             print '\t', binary_to_hex(rtx.getTxHash(), BIGENDIAN)
-         
+
    #############################################################################
    def hasAnyImported(self):
       for a160,addr in self.addrMap.iteritems():
@@ -7302,7 +7335,7 @@ class PyBtcWallet(object):
 
    #############################################################################
    def getTxLedger(self, ledgType='Full'):
-      """ 
+      """
       Gets the ledger entries for the entire wallet, from C++/SWIG data structs
       """
       if not TheBDM.getBDMState()=='BlockchainReady' and not self.calledFromBDM:
@@ -7327,7 +7360,7 @@ class PyBtcWallet(object):
 
    #############################################################################
    def getAddrTxLedger(self, addr160, ledgType='Full'):
-      """ 
+      """
       Gets the ledger entries for the entire wallet, from C++/SWIG data structs
       """
       if (not TheBDM.getBDMState()=='BlockchainReady' and not self.calledFromBDM) or \
@@ -7431,8 +7464,8 @@ class PyBtcWallet(object):
    def lockTxOutsOnNewTx(self, pytxObj):
       for txin in pytxObj.inputs:
          self.cppWallet.lockTxOutSwig(txin.outpoint.txHash, txin.outpoint.txOutIndex)
-         
-   
+
+
 
    #############################################################################
    def setDefaultKeyLifetime(self, lifetimeInSec):
@@ -7445,7 +7478,7 @@ class PyBtcWallet(object):
       """
       self.defaultKeyLifetime = lifetimeInSec
 
-   
+
    #############################################################################
    #  THIS WAS CREATED ORIGINALLY TO SUPPORT BITSAFE INTEGRATION INTO ARMORY
    #  But it's also a good first step into general BIP 32 support
@@ -7469,7 +7502,7 @@ class PyBtcWallet(object):
    #def deriveChildPublicKey(self, i):
       #newKey = HDWalletCrypto().ChildKeyDeriv(self.getExtendedPublicKey(), i)
       #newAddr = PyBtcAddress().createFromExtendedPublicKey(newKey)
-      
+
 
    #############################################################################
    #  THIS WAS CREATED ORIGINALLY TO SUPPORT BITSAFE INTEGRATION INTO ARMORY
@@ -7482,7 +7515,7 @@ class PyBtcWallet(object):
       pubkey = SecureBinaryData(hex_to_binary(masterHex[p0:p0+130]))
       c0 = masterHex.index('1220') + 4
       chain = SecureBinaryData(hex_to_binary(masterHex[c0:c0+64]))
-      
+
       # Create the root address object
       rootAddr = PyBtcAddress().createFromPublicKeyData( pubkey )
       rootAddr.markAsRootAddr(chain)
@@ -7537,8 +7570,8 @@ class PyBtcWallet(object):
       fileData.put(BINARY_CHUNK, '\x00' + first160 + firstAddr.serialize())
 
 
-      # Store the current localtime and blocknumber.  Block number is always 
-      # accurate if available, but time may not be exactly right.  Whenever 
+      # Store the current localtime and blocknumber.  Block number is always
+      # accurate if available, but time may not be exactly right.  Whenever
       # basing anything on time, please assume that it is up to one day off!
       time0,blk0 = getCurrTimeAndBlock() if isActuallyNew else (0,0)
 
@@ -7565,9 +7598,9 @@ class PyBtcWallet(object):
 
       return self
 
-      
 
-   
+
+
    #############################################################################
    def createNewWallet(self, newWalletFilePath=None, \
                              plainRootKey=None, chaincode=None, \
@@ -7602,7 +7635,7 @@ class PyBtcWallet(object):
       DO NOT CALL THIS FROM BDM METHOD.  IT MAY DEADLOCK.
       """
 
-      
+
       if self.calledFromBDM:
          LOGERROR('Called createNewWallet() from BDM method!')
          LOGERROR('Don\'t do this!')
@@ -7641,11 +7674,11 @@ class PyBtcWallet(object):
          #chaincode = SecureBinaryData().GenerateRandom(32)
          # For wallet 1.35a, derive chaincode deterministically from root key
          # The root key already has 256 bits of entropy which is excessive,
-         # anyway.  And my original reason for having the chaincode random is 
+         # anyway.  And my original reason for having the chaincode random is
          # no longer valid.
          chaincode = DeriveChaincodeFromRootKey(plainRootKey)
-            
-                             
+
+
 
       # Create the root address object
       rootAddr = PyBtcAddress().createFromPlainKeyData( \
@@ -7704,8 +7737,8 @@ class PyBtcWallet(object):
       fileData.put(BINARY_CHUNK, '\x00' + first160 + firstAddr.serialize())
 
 
-      # Store the current localtime and blocknumber.  Block number is always 
-      # accurate if available, but time may not be exactly right.  Whenever 
+      # Store the current localtime and blocknumber.  Block number is always
+      # accurate if available, but time may not be exactly right.  Whenever
       # basing anything on time, please assume that it is up to one day off!
       time0,blk0 = getCurrTimeAndBlock() if isActuallyNew else (0,0)
 
@@ -7742,7 +7775,7 @@ class PyBtcWallet(object):
       return self
 
 
-      
+
 
 
    #############################################################################
@@ -7755,7 +7788,7 @@ class PyBtcWallet(object):
       self.walletFileSafeUpdate( [[WLT_UPDATE_MODIFY, self.offsetTopUsed, \
                     int_to_binary(self.highestUsedChainIndex, widthBytes=8)]])
       self.fillAddressPool()
-      
+
    #############################################################################
    def rewindHighestIndex(self, ct=1):
       self.advanceHighestIndex(-ct)
@@ -7789,7 +7822,7 @@ class PyBtcWallet(object):
       """
       Use this to extend the chain beyond the last-computed address.
 
-      We will usually be computing the next address from the tip of the 
+      We will usually be computing the next address from the tip of the
       chain, but I suppose someone messing with the file format may
       leave gaps in the chain requiring some to be generated in the middle
       (then we can use the addr160 arg to specify which address to extend)
@@ -7817,7 +7850,7 @@ class PyBtcWallet(object):
                                    time0,blk0,time0,blk0)
 
       # For recovery rescans, this method will be called directly by
-      # the BDM, which may cause a deadlock if we go through the 
+      # the BDM, which may cause a deadlock if we go through the
       # thread queue.  The calledFromBDM is "permission" to access the
       # BDM private methods directly
       if doRegister:
@@ -7829,7 +7862,7 @@ class PyBtcWallet(object):
             TheBDM.registerScrAddr(Hash160ToScrAddr(new160), isFresh=isActuallyNew)
 
       return new160
-      
+
 
 
 
@@ -7838,9 +7871,9 @@ class PyBtcWallet(object):
       """
       Usually, when we fill the address pool, we are generating addresses
       for the first time, and thus there is no chance it's ever seen the
-      blockchain.  However, this method is also used for recovery/import 
+      blockchain.  However, this method is also used for recovery/import
       of wallets, where the address pool has addresses that probably have
-      transactions already in the blockchain.  
+      transactions already in the blockchain.
       """
       if not numPool:
          numPool = self.addrPoolSize
@@ -7863,27 +7896,27 @@ class PyBtcWallet(object):
 
    #############################################################################
    def getHighestUsedIndex(self):
-      """ 
+      """
       This only retrieves the stored value, but it may not be correct if,
       for instance, the wallet was just imported but has been used before.
       """
       return self.highestUsedChainIndex
 
-          
+
    #############################################################################
    def getHighestComputedIndex(self):
-      """ 
+      """
       This only retrieves the stored value, but it may not be correct if,
       for instance, the wallet was just imported but has been used before.
       """
       return self.lastComputedChainIndex
-      
 
-         
+
+
    #############################################################################
    def detectHighestUsedIndex(self, writeResultToWallet=False, fullscan=False):
       """
-      This method is used to find the highestUsedChainIndex value of the 
+      This method is used to find the highestUsedChainIndex value of the
       wallet WITHIN its address pool.  It will NOT extend its address pool
       in this search, because it is assumed that the wallet couldn't have
       used any addresses it had not calculated yet.
@@ -7895,7 +7928,7 @@ class PyBtcWallet(object):
             self.freshImportFindHighestIndex()
 
       which will actually extend the address pool as necessary to find the
-      highest address used.      
+      highest address used.
       """
       if not TheBDM.getBDMState()=='BlockchainReady' and not self.calledFromBDM:
          LOGERROR('Cannot detect any usage information without the blockchain')
@@ -7905,10 +7938,10 @@ class PyBtcWallet(object):
       self.doBlockchainSync = BLOCKCHAIN_READONLY
       if fullscan:
          # Will initiate rescan if wallet is dirty
-         self.syncWithBlockchain(0)  
+         self.syncWithBlockchain(0)
       else:
          # Will only use data already scanned, even if wallet is dirty
-         self.syncWithBlockchainLite(0)  
+         self.syncWithBlockchainLite(0)
       self.doBlockchainSync = oldSync
 
       highestIndex = max(self.highestUsedChainIndex, 0)
@@ -7925,12 +7958,12 @@ class PyBtcWallet(object):
 
       return highestIndex
 
-         
+
 
 
    #############################################################################
    def freshImportFindHighestIndex(self, stepSize=None):
-      """ 
+      """
       This is much like detectHighestUsedIndex, except this will extend the
       address pool as necessary.  It assumes that you have a fresh wallet
       that has been used before, but was deleted and restored from its root
@@ -7938,9 +7971,9 @@ class PyBtcWallet(object):
       were used.
 
       If this was an exceptionally active wallet, it's possible that we
-      may need to manually increase the step size to be sure we find  
+      may need to manually increase the step size to be sure we find
       everything.  In fact, there is no way to tell FOR SURE what is the
-      last addressed used: one must make an assumption that the wallet 
+      last addressed used: one must make an assumption that the wallet
       never calculated more than X addresses without receiving a payment...
       """
       if not stepSize:
@@ -7960,7 +7993,7 @@ class PyBtcWallet(object):
          nWhile += 1
          if nWhile>10000:
             raise WalletAddressError, 'Escaping inf loop in freshImport...'
-            
+
 
       self.addrPoolSize = oldPoolSize
       return topUsed
@@ -7988,7 +8021,7 @@ class PyBtcWallet(object):
 
       newFile.close()
 
-   
+
    #############################################################################
    def makeUnencryptedWalletCopy(self, newPath, securePassphrase=None):
 
@@ -8007,20 +8040,20 @@ class PyBtcWallet(object):
       newWlt.unlock(self.kdfKey)
       newWlt.changeWalletEncryption(None)
 
-      
+
       walletFileBackup = newWlt.getWalletPath('backup')
       if os.path.exists(walletFileBackup):
          LOGINFO('New wallet created, deleting backup file')
          os.remove(walletFileBackup)
       return True
-      
-      
+
+
    #############################################################################
    def makeEncryptedWalletCopy(self, newPath, securePassphrase=None):
       """
-      Unlike the previous method, I can't just copy it if it's unencrypted, 
-      because the target device probably shouldn't be exposed to the 
-      unencrypted wallet.  So for that case, we will encrypt the wallet 
+      Unlike the previous method, I can't just copy it if it's unencrypted,
+      because the target device probably shouldn't be exposed to the
+      unencrypted wallet.  So for that case, we will encrypt the wallet
       in place, copy, then remove the encryption.
       """
 
@@ -8028,7 +8061,7 @@ class PyBtcWallet(object):
          # Encrypted->Encrypted:  Easy!
          self.writeFreshWalletFile(newPath)
          return True
-         
+
       if not securePassphrase:
          LOGERROR("Tried to make encrypted copy, but no passphrase supplied")
          return False
@@ -8037,7 +8070,7 @@ class PyBtcWallet(object):
       (mem,nIter,salt) = self.computeSystemSpecificKdfParams(0.25)
       self.changeKdfParams(mem, nIter, salt)
       self.changeWalletEncryption(securePassphrase=securePassphrase)
-   
+
       # Write the encrypted wallet to the target directory
       self.writeFreshWalletFile(newPath)
 
@@ -8045,9 +8078,9 @@ class PyBtcWallet(object):
       self.unlock(securePassphrase=securePassphrase)
       self.changeWalletEncryption(None)
       return True
-   
 
-      
+
+
 
 
    #############################################################################
@@ -8109,7 +8142,7 @@ class PyBtcWallet(object):
       On the other hand, if you don't want this to be a permanent upgrade,
       this could potentially be used to maintain a watching only wallet on your
       harddrive, and actually plug in your plaintext root key instead of an
-      encryption password whenever you want sign transactions. 
+      encryption password whenever you want sign transactions.
       """
       pass
 
@@ -8498,7 +8531,7 @@ class PyBtcWallet(object):
       dtype = WLT_DATATYPE_ADDRCOMMENT
       if len(hashVal)>20:
          dtype = WLT_DATATYPE_TXCOMMENT
-         
+
       updEntry.append([WLT_UPDATE_ADD, dtype, hashVal, newComment])
       newCommentLoc = self.walletFileSafeUpdate(updEntry)
       self.commentsMap[hashVal] = newComment
@@ -8512,7 +8545,7 @@ class PyBtcWallet(object):
    def getAddrCommentIfAvail(self, txHash):
       if not TheBDM.getBDMState()=='BlockchainReady':
          return self.getComment(txHash)
-         
+
       # If we haven't extracted relevant addresses for this tx, yet -- do it
       if not self.txAddrMap.has_key(txHash):
          self.txAddrMap[txHash] = []
@@ -8523,11 +8556,11 @@ class PyBtcWallet(object):
                   a160 = CheckHash160(tx.getScrAddrForTxOut(i))
                   if self.hasAddr(a160):
                      self.txAddrMap[txHash].append(a160)
-               except: 
+               except:
                   LOGERROR("Unrecognized scraddr: " + binary_to_hex(tx.getScrAddrForTxOut(i)))
-               
-     
-            
+
+
+
 
       addrComments = []
       for a160 in self.txAddrMap[txHash]:
@@ -8536,10 +8569,10 @@ class PyBtcWallet(object):
 
       return '; '.join(addrComments)
 
-                  
+
    #############################################################################
    def getCommentForLE(self, le):
-      # Smart comments for LedgerEntry objects:  get any direct comments ... 
+      # Smart comments for LedgerEntry objects:  get any direct comments ...
       # if none, then grab the one for any associated addresses.
       txHash = le.getTxHash()
       if self.commentsMap.has_key(txHash):
@@ -8555,7 +8588,7 @@ class PyBtcWallet(object):
 
 
 
-   
+
    #############################################################################
    def setWalletLabels(self, lshort, llong=''):
       self.labelName = lshort
@@ -8631,7 +8664,7 @@ class PyBtcWallet(object):
       self.offsetLabelDescr = binPacker.getSize() - startByte
       binPacker.put(BINARY_CHUNK, self.labelDescr,  width=256)
 
-      # Highest used address: 
+      # Highest used address:
       self.offsetTopUsed = binPacker.getSize() - startByte
       binPacker.put(INT64, self.highestUsedChainIndex)
 
@@ -8712,7 +8745,7 @@ class PyBtcWallet(object):
 
       # Read address-chain root address data
       self.offsetRootAddr  = binUnpacker.getPosition()
-      
+
 
       rawAddrData = binUnpacker.get(BINARY_CHUNK, self.pybtcaddrSize)
       self.addrMap['ROOT'] = PyBtcAddress().unserialize(rawAddrData)
@@ -8756,7 +8789,7 @@ class PyBtcWallet(object):
       elif dtype==WLT_DATATYPE_DELETED:
          deletedLen = binUnpacker.get(UINT16)
          binUnpacker.advance(deletedLen)
-         
+
 
       return (dtype, hashVal, binData)
 
@@ -8845,7 +8878,7 @@ class PyBtcWallet(object):
 
    #############################################################################
    def walletFileSafeUpdate(self, updateList):
-            
+
       """
       The input "toAddDataList" should be a list of triplets, such as:
       [
@@ -9097,7 +9130,7 @@ class PyBtcWallet(object):
          [  \x04  |  <2-byte length>  | \x00\x00\x00... ]
       So we need to construct a wallet-update vector to modify the data
       starting at the first byte, replace it with 0x04, specifies how many
-      bytes are in the deleted entry, and then actually overwrite those 
+      bytes are in the deleted entry, and then actually overwrite those
       bytes with 0s
       """
 
@@ -9120,7 +9153,7 @@ class PyBtcWallet(object):
       #             the wallet from file
       wltPath = self.walletPath
       self.readWalletFile(wltPath, doScanNow=True)
-      
+
 
    #############################################################################
    def importExternalAddressData(self, privKey=None, privChk=None, \
@@ -9203,11 +9236,11 @@ class PyBtcWallet(object):
          #raise ECDSA_Error, 'Supplied address hash does not match key data!'
 
       addr20 = computedAddr20
-      
+
       if self.addrMap.has_key(addr20):
          return None
 
-      # If a private key is supplied and this wallet is encrypted&locked, then 
+      # If a private key is supplied and this wallet is encrypted&locked, then
       # we have no way to secure the private key without unlocking the wallet.
       if self.useEncryption and privKey and not self.kdfKey:
          raise WalletLockError, 'Cannot import private key when wallet is locked!'
@@ -9252,7 +9285,7 @@ class PyBtcWallet(object):
 
       # The following line MAY deadlock if this method is called from the BDM
       # thread.  Do not write any BDM methods that calls this method!
-      TheBDM.registerImportedScrAddr(Hash160ToScrAddr(newAddr160), 
+      TheBDM.registerImportedScrAddr(Hash160ToScrAddr(newAddr160),
                                      firstTime, firstBlk, lastTime,  lastBlk)
 
 
@@ -9289,7 +9322,7 @@ class PyBtcWallet(object):
       """
 
       """
-      STUB: (AGAIN) I just can't make this work out to be as stupid-proof 
+      STUB: (AGAIN) I just can't make this work out to be as stupid-proof
             as I originally planned.  I'll have to put it on hold.
       self.__init__()
 
@@ -9320,7 +9353,7 @@ class PyBtcWallet(object):
                         'Priv_Hex_33_Compressed')
 
       DTYPES = enum('Unknown', 'Hash160', 'PubKey', 'PrivKey', 'Byte32', 'Byte33')
-      
+
 
       lastAddr = None
       lastPubK = None
@@ -9352,7 +9385,7 @@ class PyBtcWallet(object):
             binData = base58_to_binary(theStr)
             sz = len(binData)
 
-            
+
          if isHex and sz==40:
          elif isHex and sz==50:
             dataAndType = [DTYPES.Hash160, hex_to_binary(theStr)[1:21]]
@@ -9363,8 +9396,8 @@ class PyBtcWallet(object):
          elif isHex is sz==128:
             dataAndType = [DTYPES.PubKey, '\x04'+hex_to_binary(theStr)]
          elif isHex is sz==128:
-            
-             
+
+
 
          potentialKey = SecureBinaryData('\x04' + piece)
          isValid = CryptoECDSA().VerifyPublicKeyValid(potentialKey)
@@ -9377,7 +9410,7 @@ class PyBtcWallet(object):
 
    #############################################################################
    def checkIfRescanRequired(self):
-      """ 
+      """
       Returns true is we have to go back to disk/mmap and rescan more than two
       weeks worth of blocks
 
@@ -9409,7 +9442,7 @@ class PyBtcWallet(object):
       wltAddr = []
       for index,txin in enumerate(txdp.pytxObj.inputs):
          scriptType = getTxOutScriptType(txdp.txOutScripts[index])
-         
+
          if scriptType in (TXOUT_SCRIPT_STANDARD, TXOUT_SCRIPT_COINBASE):
             addr160 = TxOutScriptExtractAddr160(txdp.txOutScripts[index])
             if self.hasAddr(addr160) and self.addrMap[addr160].hasPrivKey():
@@ -9421,7 +9454,7 @@ class PyBtcWallet(object):
                if self.hasAddr(addr) and self.addrMap[addr].hasPrivKey():
                   wltAddr.append( (self.addrMap[addr], index, addrIdx) )
                   break
-                  
+
 
       # WltAddr now contains a list of every input we can sign for, and the
       # PyBtcAddress object that can be used to sign it.  Let's do it.
@@ -9430,7 +9463,7 @@ class PyBtcWallet(object):
       LOGDEBUG('Number of inputs that you can sign for: %d', numMyAddr)
 
 
-      # Unlock the wallet if necessary, sign inputs 
+      # Unlock the wallet if necessary, sign inputs
       maxChainIndex = -1
       for addrObj,idx, sigIdx in wltAddr:
          maxChainIndex = max(maxChainIndex, addrObj.chainIndex)
@@ -9476,12 +9509,12 @@ class PyBtcWallet(object):
          else:
             LOGERROR('Unknown txOut script type')
 
-      
-      prevHighestIndex = self.highestUsedChainIndex  
+
+      prevHighestIndex = self.highestUsedChainIndex
       if prevHighestIndex<maxChainIndex:
          self.advanceHighestIndex(maxChainIndex-prevHighestIndex)
          self.fillAddressPool()
-      
+
       return txdp
 
 
@@ -9497,11 +9530,11 @@ class PyBtcWallet(object):
       time the checkWalletLockTimeout function is called it will be re-
       locked.
       """
-      
+
       LOGDEBUG('Attempting to unlock wallet: %s', self.uniqueIDB58)
       if not secureKdfOutput and not securePassphrase:
          raise PassphraseError, "No passphrase/key provided to unlock wallet!"
-         
+
       if not secureKdfOutput:
          if not self.kdf:
             raise EncryptionError, 'How do we have a locked wallet w/o KDF???'
@@ -9525,7 +9558,7 @@ class PyBtcWallet(object):
          needToSaveAddrAfterUnlock = addrObj.createPrivKeyNextUnlock
          addrObj.unlock(self.kdfKey)
          if needToSaveAddrAfterUnlock:
-            updateLoc = addrObj.walletByteLoc 
+            updateLoc = addrObj.walletByteLoc
             self.walletFileSafeUpdate( [[WLT_UPDATE_MODIFY, addrObj.walletByteLoc, \
                                                 addrObj.serialize()]])
 
@@ -9563,8 +9596,8 @@ class PyBtcWallet(object):
       # WalletLockError, and the caller can get the passphrase from the user,
       # unlock the wallet, then try locking again.
       # NOTE: If we don't have kdfKey, it is set to None, which is the default
-      #       input for PyBtcAddress::lock for "I don't have it".  In most 
-      #       cases, it is actually possible to lock the wallet without the 
+      #       input for PyBtcAddress::lock for "I don't have it".  In most
+      #       cases, it is actually possible to lock the wallet without the
       #       kdfKey because we saved the encrypted versions before unlocking
       LOGDEBUG('Attempting to lock wallet: %s', self.uniqueIDB58)
       try:
@@ -9608,8 +9641,8 @@ class PyBtcWallet(object):
 
    #############################################################################
    def getLinearAddrList(self, withImported=True, withAddrPool=False):
-      """ 
-      Retrieves a list of addresses, by hash, in the order they 
+      """
+      Retrieves a list of addresses, by hash, in the order they
       appear in the wallet file.  Can ignore the imported addresses
       to get only chained addresses, if necessary.
 
@@ -9623,14 +9656,14 @@ class PyBtcWallet(object):
             # Either we want imported addresses, or this isn't one
             if (withAddrPool or addr.chainIndex<=self.highestUsedChainIndex):
                addrList.append(addr)
-         
+
       return addrList
-      
+
 
    #############################################################################
    def getAddress160ByChainIndex(self, desiredIdx):
       """
-      It should be safe to assume that if the index is less than the highest 
+      It should be safe to assume that if the index is less than the highest
       computed, it will be in the chainIndexMap, but I don't like making such
       assumptions.  Perhaps something went wrong with the wallet, or it was
       manually reconstructed and has holes in the chain.  We will regenerate
@@ -9642,7 +9675,7 @@ class PyBtcWallet(object):
          # that a bug may lead to generation of billions of addresses, which
          # would saturate the system's resources and fill the HDD.
          raise WalletAddressError, 'Chain index is out of range'
-         
+
 
       if self.chainIndexMap.has_key(desiredIdx):
          return self.chainIndexMap[desiredIdx]
@@ -9653,7 +9686,7 @@ class PyBtcWallet(object):
          for idx,addr160 in self.chainIndexMap.iteritems():
             if closestIdx<idx<=desiredIdx:
                closestIdx = idx
-               
+
          gap = desiredIdx - closestIdx
          extend160 = self.chainIndexMap[closestIdx]
          for i in range(gap+1):
@@ -9668,7 +9701,7 @@ class PyBtcWallet(object):
       print indent + '   useEncrypt:', self.useEncryption
       print indent + '   watchOnly :', self.watchingOnly
       print indent + '   isLocked  :', self.isLocked
-      print indent + '   ShortLabel:', self.labelName 
+      print indent + '   ShortLabel:', self.labelName
       print indent + '   LongLabel :', self.labelDescr
       print ''
       print indent + 'Root key:', self.addrMap['ROOT'].getAddrStr(),
@@ -9758,12 +9791,12 @@ class PyLedgerEntry(object):
       numIn  = len(tx.inputs)
       numOut = len(tx.outputs)
 
-      
+
 
    //    addr20_    -  useless - originally had a purpose, but lost it
    //    value_     -  total debit/credit on WALLET balance, in Satoshis (1e-8 BTC)
    //    blockNum_  -  block height of the block in which this tx was included
-   //    txHash_    -  hash of this tx 
+   //    txHash_    -  hash of this tx
    //    index_     -  index of the tx in the block
    //    isValid_   -  default to true -- invalidated due to reorg/double-spend
    //    isSentToSelf_ - if we supplied inputs and rx ALL outputs
@@ -9775,9 +9808,9 @@ class PyLedgerEntry(object):
 
 ###############################################################################
 ###############################################################################
-# 
+#
 #  Networking Objects
-# 
+#
 ###############################################################################
 ###############################################################################
 
@@ -9843,7 +9876,7 @@ class PyMessage(object):
       bp.put(BINARY_CHUNK, hash256(payloadBin)[:4],     width= 4)
       bp.put(BINARY_CHUNK, payloadBin)
       return bp.getBinaryString()
-    
+
    def unserialize(self, toUnpack):
       if isinstance(toUnpack, BinaryUnpacker):
          msgData = toUnpack
@@ -9935,7 +9968,7 @@ class PyNetAddress(object):
 class PayloadAddr(object):
 
    command = 'addr'
-   
+
    def __init__(self, addrList=[]):
       self.addrList   = addrList  # PyNetAddress objs
 
@@ -9992,7 +10025,7 @@ class PayloadPing(object):
       print ''
       print indstr + 'Message(ping)'
 
-      
+
 
 ################################################################################
 ################################################################################
@@ -10109,7 +10142,7 @@ class PayloadInv(object):
          bp.put(UINT32, inv[0])
          bp.put(BINARY_CHUNK, inv[1], width=32)
       return bp.getBinaryString()
-      
+
 
    def pprint(self, nIndent=0):
       indstr = indent*nIndent
@@ -10136,7 +10169,7 @@ class PayloadGetData(object):
          self.invList = invList
       else:
          self.invList = []
-   
+
 
    def unserialize(self, toUnpack):
       if isinstance(toUnpack, BinaryUnpacker):
@@ -10158,7 +10191,7 @@ class PayloadGetData(object):
          bp.put(UINT32, inv[0])
          bp.put(BINARY_CHUNK, inv[1], width=32)
       return bp.getBinaryString()
-      
+
 
    def pprint(self, nIndent=0):
       indstr = indent*nIndent
@@ -10167,7 +10200,7 @@ class PayloadGetData(object):
       for inv in self.invList:
          print indstr + indent + ('BLOCK: ' if inv[0]==2 else 'TX   : ') + \
                                  binary_to_hex(inv[1])
-      
+
 
 ################################################################################
 ################################################################################
@@ -10178,7 +10211,7 @@ class PayloadGetHeaders(object):
       self.version    = 1
       self.hashList   = hashStartList
       self.hashStop   = hashStop
-   
+
 
    def unserialize(self, toUnpack):
       if isinstance(toUnpack, BinaryUnpacker):
@@ -10202,7 +10235,7 @@ class PayloadGetHeaders(object):
          bp.put(BINARY_CHUNK, self.hashList[i], width=32)
       bp.put(BINARY_CHUNK, self.hashStop, width=32)
       return bp.getBinaryString()
-   
+
    def pprint(self, nIndent=0):
       indstr = indent*nIndent
       print ''
@@ -10211,7 +10244,7 @@ class PayloadGetHeaders(object):
       for i in range(1,len(self.hashList)):
          print indstr + indent + '             :' + binary_to_hex(self.hashList[i])
       print indstr + indent + 'HashStop     :' + binary_to_hex(self.hashStop)
-         
+
 
 
 ################################################################################
@@ -10223,7 +10256,7 @@ class PayloadGetBlocks(object):
       self.version    = 1
       self.hashList  = hashStartList
       self.hashStop   = hashStop
-   
+
 
    def unserialize(self, toUnpack):
       if isinstance(toUnpack, BinaryUnpacker):
@@ -10289,7 +10322,7 @@ class PayloadHeaders(object):
    def __init__(self, header=PyBlockHeader(), headerlist=[]):
       self.header = header
       self.headerList = headerlist
-   
+
 
    def unserialize(self, toUnpack):
       if isinstance(toUnpack, BinaryUnpacker):
@@ -10331,7 +10364,7 @@ class PayloadBlock(object):
    def __init__(self, header=PyBlockHeader(), txlist=[]):
       self.header = header
       self.txList = txlist
-   
+
 
    def unserialize(self, toUnpack):
       if isinstance(toUnpack, BinaryUnpacker):
@@ -10381,7 +10414,7 @@ class PayloadAlert(object):
       self.statusBar  = ''
       self.reserved   = ''
       self.signature   = ''
-   
+
 
    def unserialize(self, toUnpack):
       if isinstance(toUnpack, BinaryUnpacker):
@@ -10455,11 +10488,11 @@ def createBlockLocatorNumList(topblk):
 ################################################################################
 #
 # Armory Networking:
-# 
-#    This is where I will define all the network operations needed for 
+#
+#    This is where I will define all the network operations needed for
 #    Armory to operate, using python-twisted.  There are "better"
 #    ways to do this with "reusable" code structures (i.e. using huge
-#    deferred callback chains), but this is not the central "creative" 
+#    deferred callback chains), but this is not the central "creative"
 #    part of the Bitcoin protocol.  I need just enough to broadcast tx
 #    and receive new tx that aren't in the blockchain yet.  Beyond that,
 #    I'll just be ignoring everything else.
@@ -10468,7 +10501,7 @@ def createBlockLocatorNumList(topblk):
 class ArmoryClient(Protocol):
    """
    This is where all the Bitcoin-specific networking stuff goes.
-   In the Twisted way, you need to inject your own chains of 
+   In the Twisted way, you need to inject your own chains of
    callbacks through the factory in order to get this class to do
    the right thing on the various events.
    """
@@ -10507,15 +10540,15 @@ class ArmoryClient(Protocol):
       self.sendMessage( msgVersion )
       self.factory.func_madeConnect()
 
-      
+
    ############################################################
    def dataReceived(self, data):
       """
-      Called by the reactor when data is received over the connection. 
+      Called by the reactor when data is received over the connection.
       This method will do nothing if we don't receive a full message.
       """
 
-      
+
       #print '\n\nData Received:',
       #pprintHex(binary_to_hex(data), withAddr=False)
 
@@ -10527,8 +10560,8 @@ class ArmoryClient(Protocol):
       while True:
          try:
             # recvData is only modified if the unserialize succeeds
-            # Had a serious issue with references, so I had to convert 
-            # messages to strings to guarantee that copies were being 
+            # Had a serious issue with references, so I had to convert
+            # messages to strings to guarantee that copies were being
             # made!  (yes, hacky...)
             thisMsg = PyMessage().unserialize(buf)
             messages.append( thisMsg.serialize() )
@@ -10634,7 +10667,7 @@ class ArmoryClient(Protocol):
          LOGINFO('Received new block.  %s', binary_to_hex(pyHeader.getHash(), BIGENDIAN))
          self.factory.func_newBlock(pyHeader, pyTxList)
 
-                  
+
 
    ############################################################
    def startHeaderDL(self):
@@ -10643,11 +10676,11 @@ class ArmoryClient(Protocol):
       msg.payload.version  = 1
       msg.payload.hashList = [getHeaderByHeight(i).getHash() for i in numList]
       msg.payload.hashStop = '\x00'*32
-   
+
       self.sentHeadersReq = True
 
 
-      
+
    ############################################################
    def startBlockDL(self):
       numList = self.createBlockLocatorNumList(self.topBlk)
@@ -10665,7 +10698,7 @@ class ArmoryClient(Protocol):
       If you have a fully-serialized message (with header) already,
       easy enough to user PyMessage().unserialize(binMsg)
       """
-         
+
       if isinstance(msg, PyMessage):
          #print '\n\nSending Message:', msg.payload.command.upper()
          #pprintHex(binary_to_hex(msg.serialize()), indent='   ')
@@ -10687,7 +10720,7 @@ class ArmoryClient(Protocol):
    def sendTx(self, txObj):
       """
       This is a convenience method for the special case of sending
-      a locally-constructed transaction.  Pass in either a PyTx 
+      a locally-constructed transaction.  Pass in either a PyTx
       object, or a binary serialized tx.  It will be converted to
       a PyMessage and forwarded to our peer(s)
       """
@@ -10698,12 +10731,12 @@ class ArmoryClient(Protocol):
          self.sendMessage( PayloadTx(txObj))
       elif isinstance(txObj, str):
          self.sendMessage( PayloadTx(PyTx().unserialize(txObj)) )
-         
 
 
 
 
-   
+
+
 
 
 ################################################################################
@@ -10712,7 +10745,7 @@ class ArmoryClientFactory(ReconnectingClientFactory):
    """
    Spawns Protocol objects used for communicating over the socket.  All such
    objects (ArmoryClients) can share information through this factory.
-   However, at the moment, this class is designed to only create a single 
+   However, at the moment, this class is designed to only create a single
    connection -- to localhost.
    """
    protocol = ArmoryClient
@@ -10726,8 +10759,8 @@ class ArmoryClientFactory(ReconnectingClientFactory):
                 func_newTx=(lambda x: None), \
                 func_newBlock=(lambda x,y: None)):
       """
-      Initialize the ReconnectingClientFactory with a deferred for when the handshake 
-      finishes:  there should be only one handshake, and thus one firing 
+      Initialize the ReconnectingClientFactory with a deferred for when the handshake
+      finishes:  there should be only one handshake, and thus one firing
       of the handshake-finished callback
       """
       self.lastAlert = 0
@@ -10738,7 +10771,7 @@ class ArmoryClientFactory(ReconnectingClientFactory):
       # static set of behaviors for each message type
       # (NOTE:  The logic for what I need right now is so simple, that
       #         I finished implementing it in a few lines of code.  When I
-      #         need to expand the versatility of this class, I'll start 
+      #         need to expand the versatility of this class, I'll start
       #         doing more OOP/deferreds/etc
       self.func_loseConnect = func_loseConnect
       self.func_madeConnect = func_madeConnect
@@ -10746,13 +10779,13 @@ class ArmoryClientFactory(ReconnectingClientFactory):
       self.func_newBlock    = func_newBlock
       self.proto = None
 
-   
+
 
    #############################################################################
    def addTxToMemoryPool(self, pytx):
       if not TheBDM.getBDMState()=='Offline':
-         TheBDM.addNewZeroConfTx(pytx.serialize(), long(RightNow()), True)    
-      
+         TheBDM.addNewZeroConfTx(pytx.serialize(), long(RightNow()), True)
+
 
 
    #############################################################################
@@ -10771,7 +10804,7 @@ class ArmoryClientFactory(ReconnectingClientFactory):
       self.func_loseConnect()
       ReconnectingClientFactory.clientConnectionLost(self,connector,reason)
 
-      
+
 
    #############################################################################
    def connectionFailed(self, protoObj, reason):
@@ -10784,7 +10817,7 @@ class ArmoryClientFactory(ReconnectingClientFactory):
       ReconnectingClientFactory.connectionFailed(self, protoObj, reason)
 
 
-      
+
 
    #############################################################################
    def sendTx(self, pytxObj):
@@ -10807,7 +10840,7 @@ class ArmoryClientFactory(ReconnectingClientFactory):
 class FakeClientFactory(ReconnectingClientFactory):
    """
    A fake class that has the same methods as an ArmoryClientFactory,
-   but doesn't do anything.  If there is no internet, then we want 
+   but doesn't do anything.  If there is no internet, then we want
    to be able to use the same calls
    """
    #############################################################################
@@ -10850,8 +10883,8 @@ def satoshiIsAvailable(host='127.0.0.1', port=BITCOIN_PORT, timeout=0.01):
 ################################################################################
 def extractSignedDataFromVersionsDotTxt(wholeFile, doVerify=True):
    """
-   This method returns a pair: a dictionary to lookup link by OS, and 
-   a formatted string that is sorted by OS, and re-formatted list that 
+   This method returns a pair: a dictionary to lookup link by OS, and
+   a formatted string that is sorted by OS, and re-formatted list that
    will hash the same regardless of original format or ordering
    """
 
@@ -10868,13 +10901,13 @@ def extractSignedDataFromVersionsDotTxt(wholeFile, doVerify=True):
       LOGERROR('No signed data block found')
       return ''
 
-   
+
    if doVerify:
       Pub = SecureBinaryData(hex_to_binary(ARMORY_INFO_SIGN_PUBLICKEY))
       Msg = SecureBinaryData(MSGRAW)
       Sig = SecureBinaryData(hex_to_binary(SIGHEX))
       isVerified = CryptoECDSA().VerifyData(Msg, Sig, Pub)
-   
+
       if not isVerified:
          LOGERROR('Signed data block failed verification!')
          return ''
@@ -10886,12 +10919,12 @@ def extractSignedDataFromVersionsDotTxt(wholeFile, doVerify=True):
 
 ################################################################################
 def parseLinkList(theData):
-   """ 
+   """
    Plug the verified data into here...
    """
    DLDICT,VERDICT = {},{}
    sectStr = None
-   for line in theData.split('\n'): 
+   for line in theData.split('\n'):
       pcs = line[1:].split()
       if line.startswith('# SECTION-') and 'INSTALLERS' in line:
          sectStr = pcs[0].split('-')[-1]
@@ -10901,7 +10934,7 @@ def parseLinkList(theData):
          if len(pcs)>1:
             VERDICT[sectStr] = pcs[-1]
          continue
-      
+
       if len(pcs)==3 and pcs[1].startswith('http'):
          DLDICT[sectStr][pcs[0]] = pcs[1:]
 
@@ -10909,14 +10942,14 @@ def parseLinkList(theData):
 
 
 
-   
+
 
 ################################################################################
 # jgarzik'sjj jsonrpc-bitcoin code -- stupid-easy to talk to bitcoind
 from jsonrpc import ServiceProxy, authproxy
 class SatoshiDaemonManager(object):
    """
-   Use an existing implementation of bitcoind 
+   Use an existing implementation of bitcoind
    """
 
    class BitcoindError(Exception): pass
@@ -10933,7 +10966,7 @@ class SatoshiDaemonManager(object):
       self.satoshiHome = None
       self.bitconf = {}
       self.proxy = None
-      self.bitcoind = None  
+      self.bitcoind = None
       self.isMidQuery = False
       self.last20queries = []
       self.disabled = False
@@ -10999,7 +11032,7 @@ class SatoshiDaemonManager(object):
       self.readBitcoinConf(makeIfDNE=True)
 
 
-   
+
 
 
    #############################################################################
@@ -11011,25 +11044,29 @@ class SatoshiDaemonManager(object):
             self.stopBitcoind()
 
       self.disabled = newBool
-            
+
 
    #############################################################################
    def getAllFoundExe(self):
       return list(self.foundExe)
-      
-      
+
+
    #############################################################################
    def findBitcoind(self, extraSearchPaths=[]):
       self.foundExe = []
 
       searchPaths = list(extraSearchPaths)  # create a copy
+      searchPaths.extend([os.path.join(searchPaths[0], 'daemon')])
+      searchPaths.extend([os.path.join(searchPaths[0], 'Bitcoin')])
+      #searchPaths.extend(os.path.join(extraSearchPaths, 'Bitcoin'))
+
 
       if OS_WINDOWS:
          # First check desktop for links
          possBaseDir = []
          home      = os.path.expanduser('~')
-         desktop   = os.path.join(home, 'Desktop') 
-         
+         desktop   = os.path.join(home, 'Desktop')
+
          if os.path.exists(desktop):
             dtopfiles = os.listdir(desktop)
             for path in [os.path.join(desktop, fn) for fn in dtopfiles]:
@@ -11040,14 +11077,13 @@ class SatoshiDaemonManager(object):
                   targDir = os.path.dirname(targ)
                   LOGINFO('Found Bitcoin-Qt link on desktop: %s', targDir)
                   possBaseDir.append( targDir )
-         
+
          # Also look in default place in ProgramFiles dirs
          possBaseDir.append(os.getenv('PROGRAMFILES'))
          if SystemSpecs.IsX64:
             possBaseDir.append(os.getenv('PROGRAMFILES(X86)'))
-         
 
-         # Now look at a few subdirs of the 
+         # Now look at a few subdirs of the
          searchPaths.extend(possBaseDir)
          searchPaths.extend([os.path.join(p, 'Bitcoin', 'daemon') for p in possBaseDir])
          searchPaths.extend([os.path.join(p, 'daemon') for p in possBaseDir])
@@ -11079,11 +11115,11 @@ class SatoshiDaemonManager(object):
                LOGINFO('"whereis" returned: %s', str(locs))
                self.foundExe.extend(locs)
          except:
-            LOGEXCEPT('Error executing "whereis" command') 
-                         
+            LOGEXCEPT('Error executing "whereis" command')
+
 
       # For logging purposes, check that the first answer matches one of the
-      # extra search paths.  There should be some kind of notification that 
+      # extra search paths.  There should be some kind of notification that
       # their supplied search path was invalid and we are using something else.
       if len(self.foundExe)>0 and len(extraSearchPaths)>0:
          foundIt = False
@@ -11117,9 +11153,9 @@ class SatoshiDaemonManager(object):
          raise FileExistsError
       return gpath
 
-         
-                         
-   
+
+
+
    #############################################################################
    def readBitcoinConf(self, makeIfDNE=False):
       LOGINFO('Reading bitcoin.conf file')
@@ -11140,7 +11176,7 @@ class SatoshiDaemonManager(object):
             LOGERROR('(it usually is, but Armory cannot guarantee it ')
             LOGERROR('on XP systems):')
             LOGERROR('    %s', bitconf)
-         else: 
+         else:
             LOGINFO('Setting permissions on bitcoin.conf')
             import win32api
             username = win32api.GetUserName()
@@ -11150,8 +11186,8 @@ class SatoshiDaemonManager(object):
       else:
          LOGINFO('Setting permissions on bitcoin.conf')
          os.chmod(bitconf, stat.S_IRUSR | stat.S_IWUSR)
-               
-            
+
+
       with open(bitconf,'r') as f:
          # Find the last character of the each line:  either a newline or '#'
          endchr = lambda line: line.find('#') if line.find('#')>1 else len(line)
@@ -11193,7 +11229,7 @@ class SatoshiDaemonManager(object):
          LOGERROR('Non-ASCII character in bitcoin.conf (rpcpassword)!')
 
       self.bitconf['host'] = '127.0.0.1'
-      
+
 
 
    #############################################################################
@@ -11211,7 +11247,7 @@ class SatoshiDaemonManager(object):
 
       if not os.path.exists(self.executable):
          raise self.BitcoindError, 'Could not find bitcoind'
-   
+
 
       pargs = [self.executable]
       if USE_TESTNET:
@@ -11223,12 +11259,12 @@ class SatoshiDaemonManager(object):
       try:
          # Don't want some strange error in this size-check to abort loading
          blocksdir = os.path.join(self.satoshiHome, 'blocks')
-         sz = long(0) 
+         sz = long(0)
          if os.path.exists(blocksdir):
             for fn in os.listdir(blocksdir):
                fnpath = os.path.join(blocksdir, fn)
                sz += long(os.path.getsize(fnpath))
-         
+
          if sz < 5*GIGABYTE:
             if SystemSpecs.Memory>9.0:
                pargs.append('-dbcache=2000')
@@ -11238,11 +11274,11 @@ class SatoshiDaemonManager(object):
                pargs.append('-dbcache=500')
       except:
          LOGEXCEPT('Failed size check of blocks directory')
-               
+
 
       # Startup bitcoind and get its process ID (along with our own)
       self.bitcoind = launchProcess(pargs)
-                                       
+
       self.btcdpid  = self.bitcoind.pid
       self.selfpid  = os.getpid()
 
@@ -11251,7 +11287,7 @@ class SatoshiDaemonManager(object):
 
       # Startup guardian process -- it will watch Armory's PID
       gpath = self.getGuardianPath()
-      pargs = [gpath, str(self.selfpid), str(self.btcdpid)] 
+      pargs = [gpath, str(self.selfpid), str(self.btcdpid)]
       if not OS_WINDOWS:
          pargs.insert(0, 'python')
       launchProcess(pargs)
@@ -11270,16 +11306,16 @@ class SatoshiDaemonManager(object):
 
       time.sleep(1)
       self.bitcoind = None
-      
+
 
    #############################################################################
    def isRunningBitcoind(self):
-      """ 
-      armoryengine satoshiIsAvailable() only tells us whether there's a 
-      running bitcoind that is actively responding on its port.  But it 
+      """
+      armoryengine satoshiIsAvailable() only tells us whether there's a
+      running bitcoind that is actively responding on its port.  But it
       won't be responding immediately after we've started it (still doing
-      startup operations).  If bitcoind was started and still running, 
-      then poll() will return None.  Any othe poll() return value means 
+      startup operations).  If bitcoind was started and still running,
+      then poll() will return None.  Any othe poll() return value means
       that the process terminated
       """
       if self.bitcoind==None:
@@ -11296,7 +11332,7 @@ class SatoshiDaemonManager(object):
                for line in self.btcErr.split('\n'):
                   LOGWARN(line)
          return self.bitcoind.poll()==None
-      
+
    #############################################################################
    def wasRunningBitcoind(self):
       return (not self.bitcoind==None)
@@ -11304,17 +11340,17 @@ class SatoshiDaemonManager(object):
    #############################################################################
    def bitcoindIsResponsive(self):
       return satoshiIsAvailable(self.bitconf['host'], self.bitconf['rpcport'])
-   
+
    #############################################################################
    def getSDMState(self):
-      """ 
+      """
       As for why I'm doing this:  it turns out that between "initializing"
       and "synchronizing", bitcoind temporarily stops responding entirely,
       which causes "not-available" to be the state.  I need to smooth that
-      out because it wreaks havoc on the GUI which will switch to showing 
+      out because it wreaks havoc on the GUI which will switch to showing
       a nasty error.
       """
-         
+
       state = self.getSDMStateLogic()
       self.circBufferState.append(state)
       self.circBufferTime.append(RightNow())
@@ -11325,15 +11361,15 @@ class SatoshiDaemonManager(object):
          self.circBufferTime  = self.circBufferTime[1:]
 
       # Here's where we modify the output to smooth out the gap between
-      # "initializing" and "synchronizing" (which is a couple seconds 
-      # of "not available").   "NotAvail" keeps getting added to the 
-      # buffer, but if it was "initializing" in the last 5 seconds, 
+      # "initializing" and "synchronizing" (which is a couple seconds
+      # of "not available").   "NotAvail" keeps getting added to the
+      # buffer, but if it was "initializing" in the last 5 seconds,
       # we will keep "initializing"
       if state=='BitcoindNotAvailable':
          if 'BitcoindInitializing' in self.circBufferState:
             LOGWARN('Overriding not-available message. This should happen 0-5 times')
             return 'BitcoindInitializing'
-      
+
       return state
 
    #############################################################################
@@ -11352,7 +11388,7 @@ class SatoshiDaemonManager(object):
 
       if self.bitcoind==None and latestInfo['error']=='Uninitialized':
          return 'BitcoindNeverStarted'
-   
+
       if not self.isRunningBitcoind():
          # Not running at all:  either never started, or process terminated
          if not self.btcErr==None and len(self.btcErr)>0:
@@ -11373,7 +11409,7 @@ class SatoshiDaemonManager(object):
          return 'BitcoindInitializing'
       else:
          # If it's responsive, get the top block and check
-         # TODO: These conditionals are based on experimental results.  May 
+         # TODO: These conditionals are based on experimental results.  May
          #       not be accurate what the specific errors mean...
          if latestInfo['error']=='ValueError':
             return 'BitcoindWrongPassword'
@@ -11397,9 +11433,9 @@ class SatoshiDaemonManager(object):
                return 'BitcoindSynchronizing'
             else:
                return 'BitcoindReady'
-            
 
-        
+
+
 
    #############################################################################
    def createProxy(self, forceNew=False):
@@ -11419,7 +11455,7 @@ class SatoshiDaemonManager(object):
       tstart = RightNow()
       try:
          numblks = self.proxy.getinfo()['blocks']
-         blkhash = self.proxy.getblockhash(numblks) 
+         blkhash = self.proxy.getblockhash(numblks)
          toptime = self.proxy.getblock(blkhash)['time']
          #LOGDEBUG('RPC Call: numBlks=%d, toptime=%d', numblks, toptime)
          # Only overwrite once all outputs are retrieved
@@ -11447,7 +11483,7 @@ class SatoshiDaemonManager(object):
          LOGEXCEPT('ValueError in bkgd req top blk')
          self.lastTopBlockInfo['error'] = 'ValueError'
       except authproxy.JSONRPCException:
-         # This seems to happen when bitcoind is overwhelmed... not quite ready 
+         # This seems to happen when bitcoind is overwhelmed... not quite ready
          LOGDEBUG('generic jsonrpc exception')
          self.lastTopBlockInfo['error'] = 'JsonRpcException'
       except socket.error:
@@ -11470,19 +11506,19 @@ class SatoshiDaemonManager(object):
       to respond to JSON-RPC calls!  We must do it in the background...
 
       If it's already querying, no need to kick off another background request,
-      just return the last value, which may be "stale" but we don't really 
+      just return the last value, which may be "stale" but we don't really
       care for this particular use-case
       """
       if not self.isRunningBitcoind():
-         return   
+         return
 
       if self.isMidQuery:
-         return 
+         return
 
       self.createProxy()
       self.queryThread = PyBackgroundThread(self.__backgroundRequestTopBlock)
       self.queryThread.start()
-      
+
 
    #############################################################################
    def getTopBlockInfo(self):
@@ -11503,7 +11539,7 @@ class SatoshiDaemonManager(object):
          raise self.BitcoindError, 'callJSON while %s'%state
 
       return self.proxy.__getattr__(func)(*args)
-   
+
 
    #############################################################################
    def returnSDMInfo(self):
@@ -11529,7 +11565,7 @@ class SatoshiDaemonManager(object):
       print '\t', 'SDM State Str'.ljust(20), ':', self.getSDMState()
       for key,value in self.returnSDMInfo().iteritems():
          print '\t', str(key).ljust(20), ':', str(value)
-         
+
 
 
 ################################################################################
@@ -11540,12 +11576,12 @@ class SettingsFile(object):
    that older versions of PyQt do not support the QSettings (or at least
    I never figured it out).  Easy enough to do it here
 
-   All settings must populated with a simple datatype -- non-simple 
-   datatypes should be broken down into pieces that are simple:  numbers 
+   All settings must populated with a simple datatype -- non-simple
+   datatypes should be broken down into pieces that are simple:  numbers
    and strings, or lists/tuples of them.
 
    Will write all the settings to file.  Each line will look like:
-         SingleValueSetting1 | 3824.8 
+         SingleValueSetting1 | 3824.8
          SingleValueSetting2 | this is a string
          Tuple Or List Obj 1 | 12 $ 43 $ 13 $ 33
          Tuple Or List Obj 2 | str1 $ another str
@@ -11556,7 +11592,7 @@ class SettingsFile(object):
       self.settingsPath = path
       self.settingsMap = {}
       if not path:
-         self.settingsPath = os.path.join(ARMORY_HOME_DIR, 'ArmorySettings.txt') 
+         self.settingsPath = os.path.join(ARMORY_HOME_DIR, 'ArmorySettings.txt')
 
       LOGINFO('Using settings file: %s', self.settingsPath)
       if os.path.exists(self.settingsPath):
@@ -11575,7 +11611,7 @@ class SettingsFile(object):
    #############################################################################
    def hasSetting(self, name):
       return self.settingsMap.has_key(name)
-   
+
    #############################################################################
    def set(self, name, value):
       if isinstance(value, tuple):
@@ -11645,9 +11681,9 @@ class SettingsFile(object):
       for key,val in self.settingsMap.iteritems():
          try:
             # Skip anything that throws an exception
-            valStr = '' 
+            valStr = ''
             if   isinstance(val, basestring):
-               valStr = val 
+               valStr = val
             elif isinstance(val, int) or \
                  isinstance(val, float) or \
                  isinstance(val, long):
@@ -11662,7 +11698,7 @@ class SettingsFile(object):
          except:
             LOGEXCEPT('Invalid entry in SettingsFile... skipping')
       f.close()
-      
+
 
    #############################################################################
    def loadSettingsFile(self, path=None):
@@ -11680,18 +11716,18 @@ class SettingsFile(object):
       def castVal(v):
          v = v.strip()
          a,b = v.isdigit(), v.replace('.','').isdigit()
-         if a:   
+         if a:
             return int(v)
-         elif b: 
+         elif b:
             return float(v)
-         else:   
+         else:
             if v.lower()=='true':
                return True
             elif v.lower()=='false':
                return False
             else:
                return toUnicode(v)
-         
+
 
       sdata = [line.strip() for line in sdata.split('\n')]
       for line in sdata:
@@ -11715,12 +11751,12 @@ class SettingsFile(object):
 ################################################################################
 ################################################################################
 # Read Satoshi Wallets (wallet.dat) to import into Armory wallet
-# BSDDB wallet-reading code taken from Joric's pywallet:  he declared it 
-# public domain. 
+# BSDDB wallet-reading code taken from Joric's pywallet:  he declared it
+# public domain.
 #try:
 #   from bsddb.db import *
 #except ImportError:
-#   # Apparently bsddb3 is needed on OSX 
+#   # Apparently bsddb3 is needed on OSX
 #   from bsddb3.db import *
 #
 #import json
@@ -11836,7 +11872,7 @@ class SettingsFile(object):
 #
 #################################################################################
 #def create_env(wltDir):
-#   """ 
+#   """
 #   This appears to set the "environment" for BSDDB:  the directory containing
 #   all the DB we plan to open: which in this case is just one:  wallet.dat
 #   """
@@ -11862,7 +11898,7 @@ class SettingsFile(object):
 #   if r is not None:
 #      LOGERROR("Couldn't open wallet.dat/main. Try quitting Bitcoin and running this again.")
 #      sys.exit(1)
-#   
+#
 #   return db
 #
 #
@@ -11940,7 +11976,7 @@ class SettingsFile(object):
 #         addrNames[addrB58] = name
 #         wltNetByte = base58_to_binary(addrB58)[0]
 #         if not wltNetByte==ADDRBYTE:
-#            s = 'Wallet is for a different network!  ' 
+#            s = 'Wallet is for a different network!  '
 #            if NETWORKS.has_key(wltNetByte):
 #               s += '(for network: %s)' %  NETWORKS[wltNetByte]
 #            raise NetworkIDError, s
@@ -11963,16 +11999,16 @@ class SettingsFile(object):
 #
 #   wltDir,wltFile = os.path.split(wltPath)
 #
-#   db_env = create_env(wltDir) 
+#   db_env = create_env(wltDir)
 #
 #   plainkeys,mkey,crypt,pool,names = read_wallet(db_env, wltFile)
-#   
+#
 #   if len(crypt)>0:
 #      # Satoshi Wallet is encrypted!
 #      plainkeys = []
 #      if not passphrase:
 #         raise EncryptionError, 'Satoshi wallet is encrypted but no passphrase supplied'
-#      
+#
 #      pKey,IV = GetKeyFromPassphraseSatoshi( passphrase, \
 #                                             mkey['salt'], \
 #                                             mkey['iter'], \
@@ -12001,10 +12037,10 @@ class SettingsFile(object):
 #      addr = hash160_to_addrStr(convertKeyDataToAddress(key.toBinStr()))
 #      strName = ''
 #      if names.has_key(addr):
-#         strName = names[addr] 
+#         strName = names[addr]
 #      outputList.append( [addr, key, (not addr in pool), strName] )
 #   return outputList
-#         
+#
 #
 #
 #def checkSatoshiEncrypted(wltPath):
@@ -12022,13 +12058,13 @@ class PyBackgroundThread(threading.Thread):
    """
    Wraps a function in a threading.Thread object which will run
    that function in a separate thread.  Calling self.start() will
-   return immediately, but will start running that function in 
-   separate thread.  You can check its progress later by using 
+   return immediately, but will start running that function in
+   separate thread.  You can check its progress later by using
    self.isRunning() or self.isFinished().  If the function returns
-   a value, use self.getOutput().  Use self.getElapsedSeconds() 
+   a value, use self.getOutput().  Use self.getElapsedSeconds()
    to find out how long it took.
    """
-   
+
    def __init__(self, *args, **kwargs):
       threading.Thread.__init__(self)
 
@@ -12087,7 +12123,7 @@ class PyBackgroundThread(threading.Thread):
       # This should not be called manually.  Only call start()
       self.output     = self.func()
       self.finishedAt = RightNow()
-      
+
    def reset(self):
       self.output = None
       self.startedAt  = UNINITIALIZED
@@ -12115,13 +12151,13 @@ def AllowAsync(func):
          return thr
 
    return wrappedFunc
-         
+
 
 
 
 ################################################################################
 # Let's create a thread-wrapper for the blockchain utilities.  Enable the
-# ability for multi-threaded blockchain scanning -- have a main thread and 
+# ability for multi-threaded blockchain scanning -- have a main thread and
 # a blockchain thread:  blockchain can scan, and main thread will check back
 # every now and then to see if it's done
 
@@ -12155,46 +12191,46 @@ BDMINPUTTYPE  = enum('RegisterAddr', \
 
 ################################################################################
 class BlockDataManagerThread(threading.Thread):
-   """ 
-   A note about this class: 
+   """
+   A note about this class:
 
       It was mainly created to allow for asynchronous blockchain scanning,
       but the act of splitting the BDM into it's own thread meant that ALL
       communication with the BDM requires thread-safe access.  So basically,
-      I had to wrap EVERYTHING.  And then make it flexible. 
+      I had to wrap EVERYTHING.  And then make it flexible.
 
       For this reason, any calls not explicitly related to rescanning will
-      block by default, which could be a long time if the BDM is in the 
-      middle of rescanning.  For this reason, you are expected to either 
+      block by default, which could be a long time if the BDM is in the
+      middle of rescanning.  For this reason, you are expected to either
       pass wait=False if you just want to queue the function call and move
-      on in the main thread, or check the BDM state first, to make sure 
+      on in the main thread, or check the BDM state first, to make sure
       it's not currently scanning and can expect immediate response.
 
-      This makes using the BDM much more complicated.  But comes with the 
-      benefit of all rescanning being able to happen in the background.  
-      If you want to run it like single-threaded, you can use 
+      This makes using the BDM much more complicated.  But comes with the
+      benefit of all rescanning being able to happen in the background.
+      If you want to run it like single-threaded, you can use
       TheBDM.setBlocking(True) and all calls will block.  Always (unless
       you pass wait=False explicitly to one of those calls).
 
       Any calls that retrieve data from the BDM should block, even if you
-      technically can specify wait=False.  This is because the class was 
-      not designed to maintain organization of output data asynchronously.  
+      technically can specify wait=False.  This is because the class was
+      not designed to maintain organization of output data asynchronously.
       So a call like TheBDM.getTopBlockHeader() will always block, and you
-      should check the BDM state if you want to make sure it returns 
+      should check the BDM state if you want to make sure it returns
       immediately.  Since there is only one main thread, There is really no
       way for a rescan to be started between the time you check the state
-      and the time you call the method (so if you want to access the BDM 
+      and the time you call the method (so if you want to access the BDM
       from multiple threads, this class will need some redesign).
-       
+
 
    This serves as a layer between the GUI and the Blockchain utilities.
-   If a request is made to mess with the BDM while it is in the 
+   If a request is made to mess with the BDM while it is in the
    middle of scanning, it will queue it for when it's done
 
    All private methods (those starting with two underscores, like __method),
    are executed only by the BDM thread.  These should never be called
-   externally, and are only safe to run when the BDM is ready to execute 
-   them.  
+   externally, and are only safe to run when the BDM is ready to execute
+   them.
 
    You can use any non-private methods at any time, and if you set wait=True,
    the main thread will block until that operation is complete.  If the BDM
@@ -12210,33 +12246,33 @@ class BlockDataManagerThread(threading.Thread):
    job is finished (usually using TheBDM.getBDMState()=='BlockchainReady')
 
    Any methods not defined explicitly in this class will "passthrough" the
-   __getattr__() method, which will then call that exact method name on 
+   __getattr__() method, which will then call that exact method name on
    the BDM.  All calls block by default.  All such calls can also include
    wait=False if you want to queue it and then continue asynchronously.
 
 
    Implementation notes:
-      
+
       Before the multi-threaded BDM, there was wallets, and there was the BDM.
       We always gave the wallets to the BDM and said "please search the block-
-      chain for relevant transactions".  Now that this is asynchronous, the 
-      calling thread is going to queue the blockchain scan, and then run off 
-      and do other things: which may include address/wallet operations that 
+      chain for relevant transactions".  Now that this is asynchronous, the
+      calling thread is going to queue the blockchain scan, and then run off
+      and do other things: which may include address/wallet operations that
       would collide with the BDM updating it.
 
       THEREFORE, the BDM now has a single, master wallet.  Any address you add
-      to any of your wallets, should be added to the master wallet, too.  The 
+      to any of your wallets, should be added to the master wallet, too.  The
       PyBtcWallet class does this for you, but if you are using raw BtcWallets
       (the C++ equivalent), you need to do:
-   
-            cppWallet.addScrAddress_1_(Hash160ToScrAddr(newAddr))
-            TheBDM.registerScrAddr(newAddr, isFresh=?) 
 
-      This will add the address to the TheBDM.masterCppWallet.  Then when you 
-      queue up the TheBDM to do a rescan (if necessary), it will update only 
+            cppWallet.addScrAddress_1_(Hash160ToScrAddr(newAddr))
+            TheBDM.registerScrAddr(newAddr, isFresh=?)
+
+      This will add the address to the TheBDM.masterCppWallet.  Then when you
+      queue up the TheBDM to do a rescan (if necessary), it will update only
       its own wallet.  Luckily, I designed the BDM so that data for addresses
-      in one wallet (the master), can be applied immediately to other/new 
-      wallets that have the same addresses.  
+      in one wallet (the master), can be applied immediately to other/new
+      wallets that have the same addresses.
 
       If you say isFresh=False, then the BDM will set isDirty=True.  This means
       that a full rescan will have to be performed, and wallet information may
@@ -12246,11 +12282,11 @@ class BlockDataManagerThread(threading.Thread):
 
       Tying this all together:  if you add an address to a PYTHON wallet, you
       just add it through an existing call.  If you add it with a C++ wallet,
-      you need to explicitly register it with TheBDM, too.  Then you need to 
-      tell the BDM to do a rescan (if isDirty==True), and then call the method 
+      you need to explicitly register it with TheBDM, too.  Then you need to
+      tell the BDM to do a rescan (if isDirty==True), and then call the method
       updateWalletsAfterScan(
       are ready, you can chec
-      
+
    """
    #############################################################################
    def __init__(self, isOffline=False, blocking=False):
@@ -12284,21 +12320,22 @@ class BlockDataManagerThread(threading.Thread):
       self.cppWltList   = []   # these will be python refs
 
       # The BlockDataManager is easier to use if you put all your addresses
-      # into a C++ BtcWallet object, and let it 
+      # into a C++ BtcWallet object, and let it
       self.masterCppWallet = Cpp.BtcWallet()
       self.bdm.registerWallet(self.masterCppWallet)
-       
-      self.btcdir = BTC_HOME_DIR
-      self.ldbdir = LEVELDB_DIR
+
+      if OS_WINDOWS: self.btcdir = BTC_HOME_DIR.encode('utf8')
+      else: self.btcdir = BTC_HOME_DIR
+      if OS_WINDOWS: self.ldbdir = LEVELDB_DIR.encode('utf8')
+      else: self.ldbdir = LEVELDB_DIR
       self.lastPctLoad = 0
 
-      
-         
+
 
    #############################################################################
    def __getattr__(self, name):
       '''
-      Anything that is not explicitly defined in this class should 
+      Anything that is not explicitly defined in this class should
       passthrough to the C++ BlockDataManager class
 
       This remaps such calls into "passthrough" requests via the input
@@ -12306,15 +12343,15 @@ class BlockDataManagerThread(threading.Thread):
       the BDM is ready.  Hopefully, this will prevent multi-threaded
       disasters, such as seg faults due to trying to read memory that is
       in the process of being updated.
-   
+
       Specifically, any passthrough call is expected to return output
       unless you add 'waitForReturn=False' to the arg list.  i.e. all
       calls that "passthrough" will always block unless you explicitly
       tell it not to.
       '''
 
-      
-      rndID = int(random.uniform(0,100000000)) 
+
+      rndID = int(random.uniform(0,100000000))
       if not hasattr(self.bdm, name):
          LOGERROR('No BDM method: %s', name)
          raise AttributeError
@@ -12336,7 +12373,7 @@ class BlockDataManagerThread(threading.Thread):
                   return getattr(self.bdm, name)(*args)
 
             self.inputQueue.put([BDMINPUTTYPE.Passthrough, rndID, waitForReturn, name] + list(args))
-            
+
 
             if waitForReturn:
                try:
@@ -12354,12 +12391,12 @@ class BlockDataManagerThread(threading.Thread):
          return passthruFunc
 
 
-   
+
    #############################################################################
    def waitForOutputIfNecessary(self, expectOutput, rndID=0):
       # The get() command will block until the thread puts something there.
-      # We don't always expect output, but we use this method to 
-      # replace inputQueue.join().  The reason for doing it is so 
+      # We don't always expect output, but we use this method to
+      # replace inputQueue.join().  The reason for doing it is so
       # that we can guarantee that BDM thread knows whether we are waiting
       # for output or not, and any additional requests put on the inputQueue
       # won't extend our wait time for this request
@@ -12379,8 +12416,8 @@ class BlockDataManagerThread(threading.Thread):
             self.errorOut += 1
       else:
          return None
-      
-      
+
+
    #############################################################################
    def setBlocking(self, doblock=True, newTimeout=MT_WAIT_TIMEOUT_SEC):
       """
@@ -12405,7 +12442,7 @@ class BlockDataManagerThread(threading.Thread):
       if not wait==False and (self.alwaysBlock or wait==True):
          expectOutput = True
 
-      rndID = int(random.uniform(0,100000000)) 
+      rndID = int(random.uniform(0,100000000))
       self.inputQueue.put([BDMINPUTTYPE.Reset, rndID, expectOutput] )
       return self.waitForOutputIfNecessary(expectOutput, rndID)
 
@@ -12425,14 +12462,14 @@ class BlockDataManagerThread(threading.Thread):
          # The BDM is doing some processing but it is expected to be done within
          # 0.1s.  For instance, readBlkFileUpdate requires processing, but can be
          # performed 100/sec.  For the outside calling thread, this is not any
-         # different than BlockchainReady. 
+         # different than BlockchainReady.
          return 'BlockchainReady'
       elif self.blkMode == BLOCKCHAINMODE.Rescanning or self.aboutToRescan:
          # BDM is doing a FULL scan of the blockchain, and expected to take
-         
+
          return 'Scanning'
       elif self.blkMode == BLOCKCHAINMODE.Uninitialized and not self.aboutToRescan:
-         # BDM wants to be online, but the calling thread never initiated the 
+         # BDM wants to be online, but the calling thread never initiated the
          # loadBlockchain() call.  Usually setOnlineMode, registerWallets, then
          # load the blockchain.
          return 'Uninitialized'
@@ -12448,9 +12485,9 @@ class BlockDataManagerThread(threading.Thread):
 
    #############################################################################
    def predictLoadTime(self):
-      # Apparently we can't read the C++ state while it's scanning, 
+      # Apparently we can't read the C++ state while it's scanning,
       # specifically getLoadProgress* methods.  Thus we have to resort
-      # to communicating via files... bleh 
+      # to communicating via files... bleh
       bfile = os.path.join(ARMORY_HOME_DIR,'blkfiles.txt')
       if not os.path.exists(bfile):
          return [-1,-1,-1,-1]
@@ -12464,7 +12501,7 @@ class BlockDataManagerThread(threading.Thread):
             sofar   = [float(row[2]) for row in tmtrx if float(row[0])==currPhase]
             total   = [float(row[3]) for row in tmtrx if float(row[0])==currPhase]
             times   = [float(row[4]) for row in tmtrx if float(row[0])==currPhase]
-            
+
             startRow = 0 if len(startat)<=10 else -10
             todo = total[0] - startat[0]
             pct0 = sofar[0]  / todo
@@ -12472,27 +12509,27 @@ class BlockDataManagerThread(threading.Thread):
             t0,t1 = times[0], times[-1]
             if (not t1>t0) or todo<0:
                return [-1,-1,-1,-1]
-            rate = (pct1-pct0) / (t1-t0) 
+            rate = (pct1-pct0) / (t1-t0)
             tleft = (1-pct1)/rate
             totalPct = (startat[-1] + sofar[-1]) / total[-1]
             if not self.lastPctLoad == pct1:
                LOGINFO('Reading blockchain, pct complete: %0.1f', 100*totalPct)
-            self.lastPctLoad = totalPct 
+            self.lastPctLoad = totalPct
             return [currPhase,totalPct,rate,tleft]
       except:
          raise
          return [-1,-1,-1,-1]
-            
 
-   
-      
+
+
+
    #############################################################################
    def execCleanShutdown(self, wait=True):
       expectOutput = False
       if not wait==False and (self.alwaysBlock or wait==True):
          expectOutput = True
 
-      rndID = int(random.uniform(0,100000000)) 
+      rndID = int(random.uniform(0,100000000))
       self.inputQueue.put([BDMINPUTTYPE.Shutdown, rndID, expectOutput])
       return self.waitForOutputIfNecessary(expectOutput, rndID)
 
@@ -12506,7 +12543,8 @@ class BlockDataManagerThread(threading.Thread):
          LOGERROR('Cannot set blockchain/satoshi path after BDM is started')
          return
 
-      self.btcdir = newBtcDir
+      if OS_WINDOWS: self.btcdir = newBtcDir.encode('utf8')
+      else: self.btcdir = newBtcDir
 
    #############################################################################
    def setLevelDBDir(self, ldbdir):
@@ -12518,7 +12556,8 @@ class BlockDataManagerThread(threading.Thread):
       if not os.path.exists(ldbdir):
          os.makedirs(ldbdir)
 
-      self.ldbdir = ldbdir
+      if OS_WINDOWS: self.ldbdir = ldbdir.encode('utf8')
+      else: self.ldbdir = ldbdir
 
 
    #############################################################################
@@ -12528,7 +12567,7 @@ class BlockDataManagerThread(threading.Thread):
       if not wait==False and (self.alwaysBlock or wait==True):
          expectOutput = True
 
-      rndID = int(random.uniform(0,100000000)) 
+      rndID = int(random.uniform(0,100000000))
 
       if goOnline:
          if TheBDM.getBDMState() in ('Offline','Uninitialized'):
@@ -12538,7 +12577,7 @@ class BlockDataManagerThread(threading.Thread):
             self.inputQueue.put([BDMINPUTTYPE.GoOfflineRequested, rndID, expectOutput])
 
       return self.waitForOutputIfNecessary(expectOutput, rndID)
-   
+
    #############################################################################
    def isScanning(self):
       return (self.aboutToRescan or self.blkMode==BLOCKCHAINMODE.Rescanning)
@@ -12548,20 +12587,20 @@ class BlockDataManagerThread(threading.Thread):
    def readBlkFileUpdate(self, wait=True):
       """
       This method can be blocking... it always has been without a problem,
-      because the block file updates are always fast.  But I have to assume 
+      because the block file updates are always fast.  But I have to assume
       that it theoretically *could* take a while.  Consider using wait=False
       if you want it to do its thing and not wait for it (this matters, because
-      you'll want to call TheBDM.updateWalletsAfterScan() when this is 
-      finished to make sure that 
+      you'll want to call TheBDM.updateWalletsAfterScan() when this is
+      finished to make sure that
       """
       expectOutput = False
       if not wait==False and (self.alwaysBlock or wait==True):
          expectOutput = True
 
-      rndID = int(random.uniform(0,100000000)) 
+      rndID = int(random.uniform(0,100000000))
       self.inputQueue.put([BDMINPUTTYPE.ReadBlkUpdate, rndID, expectOutput])
       return self.waitForOutputIfNecessary(expectOutput, rndID)
-      
+
 
    #############################################################################
    def isInitialized(self):
@@ -12571,7 +12610,7 @@ class BlockDataManagerThread(threading.Thread):
    #############################################################################
    def isDirty(self):
       return self.bdm.isDirty()
-   
+
 
 
 
@@ -12583,7 +12622,7 @@ class BlockDataManagerThread(threading.Thread):
 
       self.aboutToRescan = True
 
-      rndID = int(random.uniform(0,100000000)) 
+      rndID = int(random.uniform(0,100000000))
       self.inputQueue.put([BDMINPUTTYPE.RescanRequested, rndID, expectOutput, scanType])
       LOGINFO('Blockchain rescan requested')
       return self.waitForOutputIfNecessary(expectOutput, rndID)
@@ -12592,16 +12631,16 @@ class BlockDataManagerThread(threading.Thread):
    #############################################################################
    def updateWalletsAfterScan(self, wait=True):
       """
-      Be careful with this method:  it is asking the BDM thread to update 
+      Be careful with this method:  it is asking the BDM thread to update
       the wallets in the main thread.  If you do this with wait=False, you
       need to avoid any wallet operations in the main thread until it's done.
       However, this is usually very fast as long as you know the BDM is not
-      in the middle of a rescan, so you might as well set wait=True.  
+      in the middle of a rescan, so you might as well set wait=True.
 
-      In fact, I highly recommend you always use wait=True, in order to 
+      In fact, I highly recommend you always use wait=True, in order to
       guarantee thread-safety.
 
-      NOTE:  If there are multiple wallet-threads, this might not work.  It 
+      NOTE:  If there are multiple wallet-threads, this might not work.  It
              might require specifying which wallets to update after a scan,
              so that other threads don't collide with the BDM updating its
              wallet when called from this thread.
@@ -12610,7 +12649,7 @@ class BlockDataManagerThread(threading.Thread):
       if not wait==False and (self.alwaysBlock or wait==True):
          expectOutput = True
 
-      rndID = int(random.uniform(0,100000000)) 
+      rndID = int(random.uniform(0,100000000))
       self.inputQueue.put([BDMINPUTTYPE.UpdateWallets, rndID, expectOutput])
       return self.waitForOutputIfNecessary(expectOutput, rndID)
 
@@ -12618,24 +12657,24 @@ class BlockDataManagerThread(threading.Thread):
    #############################################################################
    def startWalletRecoveryScan(self, pywlt, wait=None):
       """
-      A wallet recovery scan may require multiple, independent rescans.  This 
+      A wallet recovery scan may require multiple, independent rescans.  This
       is because we don't know how many addresses to pre-calculate for the
       initial scan.  So, we will calculate the first X addresses in the wallet,
       do a scan, and then if any addresses have tx history beyond X/2, calculate
       another X and rescan.  This will usually only have to be done once, but
-      may need to be repeated for super-active wallets.  
+      may need to be repeated for super-active wallets.
       (In the future, I may add functionality to sample the gap between address
       usage, so I can more-intelligently determine when we're at the end...)
       """
-      
-      
+
+
       expectOutput = False
       if not wait==False and (self.alwaysBlock or wait==True):
          expectOutput = True
 
       self.aboutToRescan = True
 
-      rndID = int(random.uniform(0,100000000)) 
+      rndID = int(random.uniform(0,100000000))
       self.inputQueue.put([BDMINPUTTYPE.WalletRecoveryScan, rndID, expectOutput, pywlt])
       LOGINFO('Wallet recovery scan requested')
       return self.waitForOutputIfNecessary(expectOutput, rndID)
@@ -12659,20 +12698,20 @@ class BlockDataManagerThread(threading.Thread):
          LOGERROR('itself reports that it is not initialized!  What is ')
          LOGERROR('going on...?')
          return False
-         
+
 
       return True
 
    #############################################################################
    def getTxByHash(self, txHash):
       """
-      All calls that retrieve blockchain data are blocking calls.  You have 
+      All calls that retrieve blockchain data are blocking calls.  You have
       no choice in the matter!
       """
       #if not self.__checkBDMReadyToServeData():
          #return None
 
-      rndID = int(random.uniform(0,100000000)) 
+      rndID = int(random.uniform(0,100000000))
       self.inputQueue.put([BDMINPUTTYPE.TxRequested, rndID, True, txHash])
 
       try:
@@ -12686,20 +12725,20 @@ class BlockDataManagerThread(threading.Thread):
          return None
          #LOGERROR('Going to block until we get something...')
          #return self.outputQueue.get(True)
-         
+
       return None
 
 
    ############################################################################
    def getHeaderByHash(self, headHash):
       """
-      All calls that retrieve blockchain data are blocking calls.  You have 
+      All calls that retrieve blockchain data are blocking calls.  You have
       no choice in the matter!
       """
       #if not self.__checkBDMReadyToServeData():
          #return None
 
-      rndID = int(random.uniform(0,100000000)) 
+      rndID = int(random.uniform(0,100000000))
       self.inputQueue.put([BDMINPUTTYPE.HeaderRequested, rndID, True, headHash])
 
       try:
@@ -12720,17 +12759,17 @@ class BlockDataManagerThread(threading.Thread):
    #############################################################################
    def getBlockByHash(self,headHash):
       """
-      All calls that retrieve blockchain data are blocking calls.  You have 
+      All calls that retrieve blockchain data are blocking calls.  You have
       no choice in the matter!
 
-      This retrives the full block, not just the header, encoded the same 
-      way as it is in the blkXXXX.dat files (including magic bytes and 
+      This retrives the full block, not just the header, encoded the same
+      way as it is in the blkXXXX.dat files (including magic bytes and
       block 4-byte block size)
       """
       #if not self.__checkBDMReadyToServeData():
          #return None
 
-      rndID = int(random.uniform(0,100000000)) 
+      rndID = int(random.uniform(0,100000000))
       self.inputQueue.put([BDMINPUTTYPE.BlockRequested, rndID, True, headHash])
 
       try:
@@ -12751,10 +12790,10 @@ class BlockDataManagerThread(threading.Thread):
    #############################################################################
    def getAddressBook(self, wlt):
       """
-      Address books are constructed from Blockchain data, which means this 
-      must be a blocking method.  
+      Address books are constructed from Blockchain data, which means this
+      must be a blocking method.
       """
-      rndID = int(random.uniform(0,100000000)) 
+      rndID = int(random.uniform(0,100000000))
       if isinstance(wlt, PyBtcWallet):
          self.inputQueue.put([BDMINPUTTYPE.AddrBookRequested, rndID, True, wlt.cppWallet])
       elif isinstance(wlt, Cpp.BtcWallet):
@@ -12777,10 +12816,10 @@ class BlockDataManagerThread(threading.Thread):
       if not wait==False and (self.alwaysBlock or wait==True):
          expectOutput = True
 
-      rndID = int(random.uniform(0,100000000)) 
+      rndID = int(random.uniform(0,100000000))
       self.inputQueue.put([BDMINPUTTYPE.ZeroConfTxToInsert, rndID, expectOutput, rawTx, timeRecv])
       return self.waitForOutputIfNecessary(expectOutput, rndID)
-      
+
    #############################################################################
    def registerScrAddr(self, scrAddr, isFresh=False, wait=None):
       """
@@ -12792,7 +12831,7 @@ class BlockDataManagerThread(threading.Thread):
       else:
          self.registerImportedScrAddr(scrAddr, wait=wait)
 
- 
+
    #############################################################################
    def registerNewScrAddr(self, scrAddr, wait=None):
       """
@@ -12804,7 +12843,7 @@ class BlockDataManagerThread(threading.Thread):
       if not wait==False and (self.alwaysBlock or wait==True):
          expectOutput = True
 
-      rndID = int(random.uniform(0,100000000)) 
+      rndID = int(random.uniform(0,100000000))
       self.inputQueue.put([BDMINPUTTYPE.RegisterAddr, rndID, expectOutput, scrAddr, True])
 
       return self.waitForOutputIfNecessary(expectOutput, rndID)
@@ -12826,13 +12865,13 @@ class BlockDataManagerThread(threading.Thread):
       if not wait==False and (self.alwaysBlock or wait==True):
          expectOutput = True
 
-      rndID = int(random.uniform(0,100000000)) 
+      rndID = int(random.uniform(0,100000000))
       self.inputQueue.put([BDMINPUTTYPE.RegisterAddr, rndID, expectOutput, scrAddr, \
                                    [firstTime, firstBlk, lastTime, lastBlk]])
 
       return self.waitForOutputIfNecessary(expectOutput, rndID)
 
-         
+
    #############################################################################
    def registerWallet(self, wlt, isFresh=False, wait=None):
       """
@@ -12866,28 +12905,28 @@ class BlockDataManagerThread(threading.Thread):
             self.cppWltList.append(wlt)
       else:
          LOGERROR('Unrecognized object passed to registerWallet function')
-               
 
 
-   
-   
+
+
+
    #############################################################################
-   # These bdm_direct methods feel like a hack.  They probably are.  I need 
+   # These bdm_direct methods feel like a hack.  They probably are.  I need
    # find an elegant way to get the code normally run outside the BDM thread,
-   # to be able to run inside the BDM thread without using the BDM queue (since 
-   # the queue is specifically FOR non-BDM-thread calls).  For now, the best 
+   # to be able to run inside the BDM thread without using the BDM queue (since
+   # the queue is specifically FOR non-BDM-thread calls).  For now, the best
    # I can do is create non-private versions of these methods that access BDM
    # methods directly, but should not be used under any circumstances, unless
    # we know for sure that the BDM ultimately called this method.
    def registerScrAddr_bdm_direct(self, scrAddr, timeInfo):
-      """ 
+      """
       Something went awry calling __registerScrAddrNow from the PyBtcWallet
-      code (apparently I don't understand __methods).  Use this method to 
-      externally bypass the BDM thread queue and register the address 
-      immediately.  
+      code (apparently I don't understand __methods).  Use this method to
+      externally bypass the BDM thread queue and register the address
+      immediately.
 
       THIS METHOD IS UNSAFE UNLESS CALLED FROM A METHOD RUNNING IN THE BDM THREAD
-      This method can be called from a non BDM class, but should only do so if 
+      This method can be called from a non BDM class, but should only do so if
       that class method was called by the BDM (thus, no conflicts)
       """
       self.__registerScrAddrNow(scrAddr, timeInfo)
@@ -12895,27 +12934,27 @@ class BlockDataManagerThread(threading.Thread):
 
    #############################################################################
    def scanBlockchainForTx_bdm_direct(self, cppWlt, startBlk=0, endBlk=UINT32_MAX):
-      """ 
+      """
       THIS METHOD IS UNSAFE UNLESS CALLED FROM A METHOD RUNNING IN THE BDM THREAD
-      This method can be called from a non BDM class, but should only do so if 
+      This method can be called from a non BDM class, but should only do so if
       that class method was called by the BDM (thus, no conflicts)
       """
       self.bdm.scanRegisteredTxForWallet(cppWlt, startBlk, endBlk)
-   
+
    #############################################################################
    def scanRegisteredTxForWallet_bdm_direct(self, cppWlt, startBlk=0, endBlk=UINT32_MAX):
-      """ 
+      """
       THIS METHOD IS UNSAFE UNLESS CALLED FROM A METHOD RUNNING IN THE BDM THREAD
-      This method can be called from a non BDM class, but should only do so if 
+      This method can be called from a non BDM class, but should only do so if
       that class method was called by the BDM (thus, no conflicts)
       """
       self.bdm.scanRegisteredTxForWallet(cppWlt, startBlk, endBlk)
 
    #############################################################################
    def getTopBlockHeight_bdm_direct(self):
-      """ 
+      """
       THIS METHOD IS UNSAFE UNLESS CALLED FROM A METHOD RUNNING IN THE BDM THREAD
-      This method can be called from a non BDM class, but should only do so if 
+      This method can be called from a non BDM class, but should only do so if
       that class method was called by the BDM (thus, no conflicts)
       """
       return self.bdm.getTopBlockHeight()
@@ -12926,11 +12965,11 @@ class BlockDataManagerThread(threading.Thread):
    def getLoadProgress(self):
       """
       This method does not actually work!  The load progress in bytes is not
-      updated properly while the BDM thread is scanning.  It might have to 
+      updated properly while the BDM thread is scanning.  It might have to
       emit this information explicitly in order to be useful.
       """
       return (self.bdm.getLoadProgressBytes(), self.bdm.getTotalBlockchainBytes())
-   
+
 
    #############################################################################
    def __registerScrAddrNow(self, scrAddr, timeInfo):
@@ -12962,7 +13001,7 @@ class BlockDataManagerThread(threading.Thread):
    def __startLoadBlockchain(self):
       """
       This should only be called by the threaded BDM, and thus there should
-      never be a conflict.  
+      never be a conflict.
       """
 
       LOGINFO('Called __startLoadBlockchain()')
@@ -12970,7 +13009,7 @@ class BlockDataManagerThread(threading.Thread):
       TimerStart('__startLoadBlockchain')
 
       if self.blkMode == BLOCKCHAINMODE.Rescanning:
-         LOGERROR('Blockchain is already scanning.  Was this called already?')         
+         LOGERROR('Blockchain is already scanning.  Was this called already?')
          return
       elif self.blkMode == BLOCKCHAINMODE.Full:
          LOGERROR('Blockchain has already been loaded -- maybe we meant')
@@ -12981,7 +13020,7 @@ class BlockDataManagerThread(threading.Thread):
          LOGERROR('the initial scan.  If BDM is in offline mode, you should ')
          LOGERROR('switch it to online-mode, first, then request the scan.')
          LOGERROR('Continuing with the scan, anyway.')
-         
+
 
       # Remove "blkfiles.txt" to make sure we get accurate TGO
       bfile = os.path.join(ARMORY_HOME_DIR,'blkfiles.txt')
@@ -13030,15 +13069,15 @@ class BlockDataManagerThread(threading.Thread):
 
       TimerStop('__startLoadBlockchain')
 
-      
+
    #############################################################################
    def __startRescanBlockchain(self, scanType='AsNeeded'):
       """
       This should only be called by the threaded BDM, and thus there should
-      never be a conflict.  
-   
-      If we don't force a full scan, we let TheBDM figure out how much of the 
-      chain needs to be rescanned.  Which may not be very much.  We may 
+      never be a conflict.
+
+      If we don't force a full scan, we let TheBDM figure out how much of the
+      chain needs to be rescanned.  Which may not be very much.  We may
       force a full scan if we think there's an issue with balances.
       """
       if self.blkMode==BLOCKCHAINMODE.Offline:
@@ -13064,7 +13103,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
       self.aboutToRescan = False
-      
+
       if scanType=='AsNeeded':
          self.bdm.doSyncIfNeeded()
       elif scanType=='ForceRescan':
@@ -13083,18 +13122,18 @@ class BlockDataManagerThread(threading.Thread):
    def __startRecoveryRescan(self, pywlt):
       """
       This should only be called by the threaded BDM, and thus there should
-      never be a conflict.  
+      never be a conflict.
 
-      In order to work cleanly with the threaded BDM, the search code 
+      In order to work cleanly with the threaded BDM, the search code
       needed to be integrated directly here, instead of being called
-      from the PyBtcWallet method.  Because that method is normally called 
-      from outside the BDM thread, but this method is only called from 
+      from the PyBtcWallet method.  Because that method is normally called
+      from outside the BDM thread, but this method is only called from
       _inside_ the BDM thread.  Those calls use the BDM stack which will
       deadlock waiting for the itself before it can move on...
 
-      Unfortunately, because of this, we have to break a python-class 
+      Unfortunately, because of this, we have to break a python-class
       privacy rules:  we are accessing the PyBtcWallet object as if this
-      were PyBtcWallet code (accessing properties directly).  
+      were PyBtcWallet code (accessing properties directly).
       """
       if not isinstance(pywlt, PyBtcWallet):
          LOGERROR('Only python wallets can be passed for recovery scans')
@@ -13114,7 +13153,7 @@ class BlockDataManagerThread(threading.Thread):
       # Whenever calling PyBtcWallet methods from BDM, set flag
       prevCalledFromBDM = pywlt.calledFromBDM
       pywlt.calledFromBDM = True
-      
+
       # Do the scan...
       TimerStart('WalletRecoveryScan')
       pywlt.freshImportFindHighestIndex()
@@ -13126,30 +13165,30 @@ class BlockDataManagerThread(threading.Thread):
       #####
       self.bdm.scanRegisteredTxForWallet(self.masterCppWallet)
 
-   
+
 
    #############################################################################
    def __readBlockfileUpdates(self):
-      ''' 
+      '''
       This method can be blocking... it always has been without a problem,
-      because the block file updates are always fast.  But I have to assume 
+      because the block file updates are always fast.  But I have to assume
       that it theoretically *could* take a while, and the caller might care.
-      ''' 
+      '''
       if self.blkMode == BLOCKCHAINMODE.Offline:
          LOGERROR('Can\'t update blockchain in %s mode!', self.getBDMState())
          return
 
       self.blkMode = BLOCKCHAINMODE.LiteScanning
-      nblk = self.bdm.readBlkFileUpdate() 
+      nblk = self.bdm.readBlkFileUpdate()
       return nblk
-         
+
 
    #############################################################################
    def __updateWalletsAfterScan(self):
       """
       This will actually do a scan regardless of whether it is currently
       "after scan", but it will usually only be requested right after a
-      full rescan 
+      full rescan
       """
 
       numToRescan = 0
@@ -13175,19 +13214,19 @@ class BlockDataManagerThread(threading.Thread):
          #
          #    scanRegisteredTxForWallet   (scan already-collected reg tx)
          #
-         # instead of 
+         # instead of
          #
          #    scanBlockchainForTx         (search for reg tx then scan)
          #
          # Because the second one will induce a full rescan to find all new
-         # registeredTx, if we recently imported an addr or wallet.  If we 
-         # imported but decided not to rescan yet, we wan tthe first one,  
-         # which only scans the registered tx that are already collected 
-         # (including new blocks, but not previous blocks).  
+         # registeredTx, if we recently imported an addr or wallet.  If we
+         # imported but decided not to rescan yet, we wan tthe first one,
+         # which only scans the registered tx that are already collected
+         # (including new blocks, but not previous blocks).
          #
          # However, with the leveldb stuff only supporting super-node, there
          # is no rescanning, thus it's safe to always call scanBlockchainForTx,
-         # which grabs everything from the database almost instantaneously.  
+         # which grabs everything from the database almost instantaneously.
          # However we may want to re-examine this after we implement new
          # database modes of operation
          #self.bdm.scanRegisteredTxForWallet(cppWlt)
@@ -13215,13 +13254,13 @@ class BlockDataManagerThread(threading.Thread):
    def __reset(self):
       LOGERROR('Resetting BDM and all wallets')
       self.bdm.Reset()
-      
+
       if self.blkMode in (BLOCKCHAINMODE.Full, BLOCKCHAINMODE.Rescanning):
          # Uninitialized means we want to be online, but haven't loaded yet
          self.blkMode = BLOCKCHAINMODE.Uninitialized
       elif not self.blkMode==BLOCKCHAINMODE.Offline:
          return
-         
+
       self.bdm.resetRegisteredWallets()
 
       # Flags
@@ -13234,7 +13273,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
       # The BlockDataManager is easier to use if you put all your addresses
-      # into a C++ BtcWallet object, and let it 
+      # into a C++ BtcWallet object, and let it
       self.masterCppWallet = Cpp.BtcWallet()
       self.bdm.registerWallet(self.masterCppWallet)
 
@@ -13248,7 +13287,7 @@ class BlockDataManagerThread(threading.Thread):
       rawTxList = []
       txList = headerObj.getTxRefPtrList()
       for txref in txList:
-         tx = txref.getTxCopy() 
+         tx = txref.getTxCopy()
          rawTxList.append(tx.serialize())
 
       numTxVarInt = len(rawTxList)
@@ -13256,17 +13295,17 @@ class BlockDataManagerThread(threading.Thread):
 
       rawBlock  = MAGIC_BYTES
       rawBlock += int_to_hex(blockBytes, endOut=LITTLEENDIAN, widthBytes=4)
-      rawBlock += headerObj.serialize() 
-      rawBlock += packVarInt(numTx)  
+      rawBlock += headerObj.serialize()
+      rawBlock += packVarInt(numTx)
       rawBlock += ''.join(rawTxList)
       return rawBlock
 
-   
+
    #############################################################################
    def getBDMInputName(self, i):
       for name in dir(BDMINPUTTYPE):
          if getattr(BDMINPUTTYPE, name)==i:
-            return name   
+            return name
 
    #############################################################################
    def run(self):
@@ -13279,7 +13318,7 @@ class BlockDataManagerThread(threading.Thread):
 
       while not self.doShutdown:
          # If there were any errors, we will have that many extra output
-         # entries on the outputQueue.  We clear them off so that this 
+         # entries on the outputQueue.  We clear them off so that this
          # thread can be re-sync'd with the main thread
          try:
             while self.errorOut>0:
@@ -13288,9 +13327,9 @@ class BlockDataManagerThread(threading.Thread):
          except Queue.Empty:
             LOGERROR('ErrorOut var over-represented number of errors!')
             self.errorOut = 0
-               
 
-         # Now start the main 
+
+         # Now start the main
          try:
             try:
                inputTuple = self.inputQueue.get_nowait()
@@ -13317,7 +13356,7 @@ class BlockDataManagerThread(threading.Thread):
 
 
             # The first list element is always the BDMINPUTTYPE (command)
-            # The second argument is whether the caller will be waiting 
+            # The second argument is whether the caller will be waiting
             # for the output:  which means even if it's None, we need to
             # put something on the output queue.
             cmd          = inputTuple[0]
@@ -13325,7 +13364,7 @@ class BlockDataManagerThread(threading.Thread):
             expectOutput = inputTuple[2]
             output       = None
 
-            # Some variables that can be queried externally to figure out 
+            # Some variables that can be queried externally to figure out
             # what the BDM is currently doing
             self.currentActivity = self.getBDMInputName(inputTuple[0])
             self.currentID = rndID
@@ -13345,7 +13384,7 @@ class BlockDataManagerThread(threading.Thread):
                if isinstance(rawTx, PyTx):
                   rawTx = rawTx.serialize()
                self.bdm.addNewZeroConfTx(rawTx, timeIn, True)
-               
+
             elif cmd == BDMINPUTTYPE.HeaderRequested:
                headHash = inputTuple[3]
                rawHeader = self.bdm.getHeaderByHash(headHash)
@@ -13355,15 +13394,15 @@ class BlockDataManagerThread(threading.Thread):
                   output = None
 
             elif cmd == BDMINPUTTYPE.TxRequested:
-               txHash = inputTuple[3] 
+               txHash = inputTuple[3]
                rawTx = self.bdm.getTxByHash(txHash)
                if rawTx:
                   output = rawTx
                else:
                   output = None
-                  
+
             elif cmd == BDMINPUTTYPE.BlockRequested:
-               headHash = inputTuple[3] 
+               headHash = inputTuple[3]
                rawBlock = self.__getFullBlock(headHash)
                if rawBlock:
                   output = rawBlock
@@ -13373,16 +13412,16 @@ class BlockDataManagerThread(threading.Thread):
                                              binary_to_hex(headHash))
 
             elif cmd == BDMINPUTTYPE.HeaderAtHeightRequested:
-               height = inputTuple[3] 
+               height = inputTuple[3]
                rawHeader = self.bdm.getHeaderByHeight(height)
                if rawHeader:
                   output = rawHeader
                else:
                   output = None
                   LOGERROR('Requested header does not exist:\nHeight=%s', height)
-         
+
             elif cmd == BDMINPUTTYPE.BlockAtHeightRequested:
-               height = inputTuple[3] 
+               height = inputTuple[3]
                rawBlock = self.__getFullBlock(height)
                if rawBlock:
                   output = rawBlock
@@ -13391,11 +13430,11 @@ class BlockDataManagerThread(threading.Thread):
                   LOGERROR('Requested header does not exist:\nHeight=%s', height)
 
             elif cmd == BDMINPUTTYPE.AddrBookRequested:
-               cppWlt = inputTuple[3] 
+               cppWlt = inputTuple[3]
                TimerStart('createAddressBook')
                output = cppWlt.createAddressBook()
                TimerStop('createAddressBook')
-                                             
+
             elif cmd == BDMINPUTTYPE.UpdateWallets:
                TimerStart('updateWltsAfterScan')
                self.__updateWalletsAfterScan()
@@ -13416,14 +13455,14 @@ class BlockDataManagerThread(threading.Thread):
                TimerStart('recoveryRescan')
                self.__startRecoveryRescan(pywlt)
                TimerStop('recoveryRescan')
-               
+
 
             elif cmd == BDMINPUTTYPE.ReadBlkUpdate:
-               
+
                TimerStart('readBlkFileUpdate')
                output = self.__readBlockfileUpdates()
                TimerStop('readBlkFileUpdate')
-               
+
 
             elif cmd == BDMINPUTTYPE.Passthrough:
                # If the caller is waiting, then it is notified by output
@@ -13442,7 +13481,7 @@ class BlockDataManagerThread(threading.Thread):
             elif cmd == BDMINPUTTYPE.Reset:
                LOGINFO('Reset Requested')
                self.__reset()
-               
+
             elif cmd == BDMINPUTTYPE.GoOnlineRequested:
                LOGINFO('Go online requested')
                # This only sets the blkMode to what will later be
@@ -13450,7 +13489,7 @@ class BlockDataManagerThread(threading.Thread):
                self.prefMode = BLOCKCHAINMODE.Full
                if self.bdm.isInitialized():
                   # The BDM was started and stopped at one point, without
-                  # being reset.  It can safely pick up from where it 
+                  # being reset.  It can safely pick up from where it
                   # left off
                   self.__readBlockfileUpdates()
                else:
@@ -13477,16 +13516,16 @@ class BlockDataManagerThread(threading.Thread):
                self.outputQueue.put('BDM_REQUEST_ERROR')
             self.inputQueue.task_done()
             continue
-           
+
       LOGINFO('BDM is shutdown.')
-      
-         
+
+
 
 
 
 ################################################################################
-# Make TheBDM reference the asyncrhonous BlockDataManager wrapper if we are 
-# running 
+# Make TheBDM reference the asyncrhonous BlockDataManager wrapper if we are
+# running
 
 if CLI_OPTIONS.offline:
    LOGINFO('Armory loaded in offline-mode.  Will not attempt to load ')
@@ -13499,10 +13538,10 @@ if CLI_OPTIONS.offline:
 
 else:
    # NOTE:  "TheBDM" is sometimes used in the C++ code to reference the
-   #        singleton BlockDataManager_LevelDB class object.  Here, 
-   #        "TheBDM" refers to a python BlockDataManagerThead class 
-   #        object that wraps the C++ version.  It implements some of 
-   #        it's own methods, and then passes through anything it 
+   #        singleton BlockDataManager_LevelDB class object.  Here,
+   #        "TheBDM" refers to a python BlockDataManagerThead class
+   #        object that wraps the C++ version.  It implements some of
+   #        it's own methods, and then passes through anything it
    #        doesn't recognize to the C++ object.
    LOGINFO('Using the asynchronous/multi-threaded BlockDataManager.')
    LOGINFO('Blockchain operations will happen in the background.  ')
@@ -13536,16 +13575,16 @@ else:
 
 
 
-   
+
 
 
 
 
 ################################################################################
-#  
+#
 #  Keep track of lots of different timers:
 #
-#     Key:    timerName  
+#     Key:    timerName
 #     Value:  [cumulTime, numStart, lastStart, isRunning]
 #
 TimerMap = {}
@@ -13590,22 +13629,22 @@ def ReadTimer(timerName):
 
    timerEntry = TimerMap[timerName]
    return timerEntry[0] + (RightNow() - timerEntry[2])
-   
+
 
 def PrintTimings():
-   print 'Timings:  '.ljust(30), 
+   print 'Timings:  '.ljust(30),
    print 'nCall'.rjust(13),
    print 'cumulTime'.rjust(13),
    print 'avgTime'.rjust(13)
    print '-'*70
    for tname,quad in TimerMap.iteritems():
-      print ('%s' % tname).ljust(30), 
+      print ('%s' % tname).ljust(30),
       print ('%d' % quad[1]).rjust(13),
       print ('%0.6f' % quad[0]).rjust(13),
       avg = quad[0]/quad[1]
       print ('%0.6f' % avg).rjust(13)
    print '-'*70
-      
+
 
 def SaveTimingsCSV(fname):
    f = open(fname, 'w')
@@ -13630,13 +13669,13 @@ def SaveTimingsCSV(fname):
 
 ################################################################################
 # I ORIGINALLY UPDATED THE TIMER TO USE collections MODULE, but it turns out
-# that module is not available on many python versions.  So I'm reverting to 
+# that module is not available on many python versions.  So I'm reverting to
 # the older version of the timers ... will update to the version below...
 # at some point...
-#  
+#
 #  Keep track of lots of different timers:
 #
-#     Key:    timerName  
+#     Key:    timerName
 #     Value:  [cumulTime, numStart, lastStart, isRunning]
 #
 
@@ -13650,7 +13689,7 @@ class TimerObj(object):
       self.callCount = 0
       self.lastStart = 0
       self.isRunning = False
-      
+
 
 ################################################################################
 def TimerStart(timerName, nCall=1):
@@ -13695,17 +13734,17 @@ def ReadTimer(timerName):
 
    timerEntry = TimerMap[timerName]
    return timerEntry.cumulTime + (RightNow() - timerEntry.lastStart)
-   
+
 
 def PrintTimings():
-   print 'Timings:  '.ljust(22), 
+   print 'Timings:  '.ljust(22),
    print 'nCall'.rjust(8),
    print 'cumulTime'.rjust(12),
    print 'avgTime'.rjust(12),
    print 'ops/sec'.rjust(12)
    print '-'*80
    for tname,tobj in TimerMap.iteritems():
-      print ('%s' % tname).ljust(22), 
+      print ('%s' % tname).ljust(22),
       print ('%d' % tobj.callCount).rjust(8),
       print ('%0.6f' % tobj.cumulTime).rjust(12),
       avg = tobj.cumulTime/tobj.callCount
@@ -13713,7 +13752,7 @@ def PrintTimings():
       print ('%0.6f' % avg).rjust(12),
       print ('%0.2f' % ops).rjust(12)
    print '-'*80
-      
+
 
 ##
 def SaveTimingsCSV(fname):
@@ -13733,11 +13772,11 @@ def SaveTimingsCSV(fname):
    print 'Saved timings to file: %s' % fname
 """
 def EstimateCumulativeBlockchainSize(blkNum):
-   # I tried to make a "static" variable here so that 
-   # the string wouldn't be parsed on every call, but 
-   # I botched that, somehow.  
+   # I tried to make a "static" variable here so that
+   # the string wouldn't be parsed on every call, but
+   # I botched that, somehow.
    #
-   # It doesn't *have to* be fast, but why not?  
+   # It doesn't *have to* be fast, but why not?
    # Oh well..
    blksizefile = """
          0 285
@@ -13796,7 +13835,7 @@ def EstimateCumulativeBlockchainSize(blkNum):
          225792 6407870776
          227808 6652067986
          228534 6778529822
-         257568 10838081536 
+         257568 10838081536
          259542 11106516992
       """
    strList = [line.strip().split() for line in blksizefile.strip().split('\n')]
@@ -13812,19 +13851,19 @@ def EstimateCumulativeBlockchainSize(blkNum):
             ratio = float(blkNum-b0)/float(b1-b0)
             return int(ratio*d1 + (1-ratio)*d0)
       raise ValueError, 'Interpolation failed for %d' % blkNum
-        
+
    else:
       bend,  dend  = BLK_SIZE_LIST[-1]
       bend2, dend2 = BLK_SIZE_LIST[-3]
       rate = float(dend - dend2) / float(bend - bend2)  # bytes per block
       extraOnTop = (blkNum - bend) * rate
       return dend+extraOnTop
-      
-         
-         
-         
-         
-         
-         
-         
+
+
+
+
+
+
+
+
 
