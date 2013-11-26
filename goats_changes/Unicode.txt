@@ -1,0 +1,5 @@
+Now supports unicode. All paths fed to the DLL should be either encoded in ASCII or UTF8.
+
+Uses a modded subprocess.py and py2exe
+
+Neither are mandatory but you'll need them to have full unicode support. Until the py2exe changes are pushed through, you can use the modded version from the repo.

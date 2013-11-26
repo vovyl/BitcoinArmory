@@ -650,7 +650,7 @@ def list2cmdline(seq):
 
 
 if mswindows:
-   class STARTUPINFO(ctypes.Structure):
+   class STARTUP_INFO(ctypes.Structure):
       _fields_ = [
          ("cb", ctypes.c_uint),
          ("lpReserved", ctypes.c_uint),
@@ -944,18 +944,21 @@ class Popen(object):
                 args = list2cmdline(args)
 
             # Process startup details
-            startupinfo = STARTUPINFO(68)
+            startup_info = STARTUP_INFO()
             #if startupinfo is None:
                 #startupinfo = STARTUPINFO()
             if None not in (p2cread, c2pwrite, errwrite):
-                startupinfo.dwFlags |= 0x00000100
-                startupinfo.hStdInput = p2cread
-                startupinfo.hStdOutput = c2pwrite
-                startupinfo.hStdError = errwrite
+                startup_info.dwFlags = 0x00000100
 
+                startup_info.hStdInput = p2cread
+                startup_info.hStdOutput = c2pwrite
+                startup_info.hStdError = errwrite
+
+            startup_info.dwFlags |= startupinfo.dwFlags
+                        
             if shell:
-                startupinfo.dwFlags |= 0x00000001
-                startupinfo.wShowWindow = 0
+                #startup_info.dwFlags |= 0x00000001
+                startup_info.wShowWindow = 0
                 comspec = os.environ.get("COMSPEC", "cmd.exe")
                 w9args = '{} /c "{}"'.format (comspec, args)
                 if (_subprocess.GetVersion() >= 0x80000000 or
@@ -965,7 +968,7 @@ class Popen(object):
                     # information, see KB Q150956
                     # (http://web.archive.org/web/20011105084002/http://support.microsoft.com/support/kb/articles/Q150/9/56.asp)
                     w9xpopen = self._find_w9xpopen()
-                    wargs = '"%s" %s' % (w9xpopen, wargs)
+                    w9args = '"%s" %s' % (w9xpopen, w9args)
                     # Not passing CREATE_NEW_CONSOLE has been known to
                     # cause random failures on win9x.  Specifically a
                     # dialog: "Your program accessed mem currently in
@@ -988,7 +991,7 @@ class Popen(object):
                                          creationflags,
                                          env,
                                          cwd,
-                                         ctypes.byref(startupinfo),
+                                         ctypes.byref(startup_info),
                                          ctypes.byref(p_i))
             except pywintypes.error, e:
                 # Translate pywintypes.error to WindowsError, which is

@@ -11,22 +11,26 @@
     
 */
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
+//#ifdef __cplusplus
+//extern "C"
+//{
+//#endif
+
+#include <Windows.h>
 
 typedef struct DIR DIR;
 
 struct dirent
 {
     char *d_name;
+	wchar_t *wd_name;
 };
 
-DIR           *opendir(const char *);
-int           closedir(DIR *);
-struct dirent *readdir(DIR *);
-void          rewinddir(DIR *);
+DIR           *opendir(const char *name);
+DIR           *opendir(const wchar_t *name);
+int           closedir(DIR *dir);
+struct dirent *readdir(DIR *dir);
+void          rewinddir(DIR *dir);
 
 /*
 
@@ -43,8 +47,8 @@ void          rewinddir(DIR *);
 
 */
 
-#ifdef __cplusplus
-}
-#endif
+//#ifdef __cplusplus
+//}
+//#endif
 
 #endif

@@ -383,7 +383,6 @@
     <ClCompile Include="..\leveldb\db\builder.cc" />
     <ClCompile Include="..\leveldb\db\c.cc" />
     <ClCompile Include="..\leveldb\db\dbformat.cc" />
-    <ClCompile Include="..\leveldb\db\db_bench.cc" />
     <ClCompile Include="..\leveldb\db\db_impl.cc" />
     <ClCompile Include="..\leveldb\db\db_iter.cc" />
     <ClCompile Include="..\leveldb\db\filename.cc" />
@@ -421,7 +420,7 @@
     <ClCompile Include="..\leveldb\util\status.cc" />
     <ClCompile Include="..\leveldb\util\testharness.cc" />
     <ClCompile Include="..\leveldb\util\testutil.cc" />
-    <ClCompile Include="win32_posix\dirent_win32.c" />
+    <ClCompile Include="win32_posix\dirent_win32.cpp" />
     <ClCompile Include="win32_posix\mman.cpp" />
     <ClCompile Include="win32_posix\pthread_win32port.cpp" />
     <ClCompile Include="win32_posix\win32_posix.cc" />

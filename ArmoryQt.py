@@ -41,8 +41,61 @@ from twisted.internet.protocol import Protocol, ClientFactory
 from twisted.internet.defer import Deferred
 from dialogs.toolsDialogs import MessageSigningVerificationDialog
 
+sys.path[0] = unicode(sys.path[0], 'mbcs')
 if OS_WINDOWS:
    from _winreg import *
+   
+   import imp
+   class UnicodeImporter(object):
+       def find_module(self,fullname,path=None):
+           if isinstance(fullname,unicode):
+               fullname = fullname.replace(u'.',u'\\')
+               exts = (u'.pyc',u'.pyo',u'.py')
+           else:
+               fullname = fullname.replace('.','\\')
+               exts = ('.pyc','.pyo','.py')
+           if os.path.exists(fullname) and os.path.isdir(fullname):
+               return self
+           for ext in exts:
+               if os.path.exists(fullname+ext):
+                   return self
+   
+       def load_module(self,fullname):
+           if fullname in sys.modules:
+               return sys.modules[fullname]
+           else:
+               sys.modules[fullname] = imp.new_module(fullname)
+           if isinstance(fullname,unicode):
+               filename = fullname.replace(u'.',u'\\')
+               ext = u'.py'
+               initfile = u'__init__'
+           else:
+               filename = fullname.replace('.','\\')
+               ext = '.py'
+               initfile = '__init__'
+           if os.path.exists(filename+ext):
+               try:
+                   with open(filename+ext,'U') as fp:
+                       mod = imp.load_source(fullname,filename+ext,fp)
+                       sys.modules[fullname] = mod
+                       mod.__loader__ = self
+                       return mod
+               except:
+                   print 'fail', filename+ext
+                   raise
+           mod = sys.modules[fullname]
+           mod.__loader__ = self
+           mod.__file__ = os.path.join(os.getcwd(),filename)
+           mod.__path__ = [filename]
+           #init file
+           initfile = os.path.join(filename,initfile+ext)
+           if os.path.exists(initfile):
+               with open(initfile,'U') as fp:
+                   code = fp.read()
+               exec code in mod.__dict__
+           return mod
+   
+   sys.meta_path = [UnicodeImporter()]
 
 
 class ArmoryMainWindow(QMainWindow):
@@ -921,9 +974,18 @@ class ArmoryMainWindow(QMainWindow):
             app_path = os.path.join(app_dir, sys.executable)
          elif __file__:
             return #running from a .py script, not gonna register URI on Windows
+         
+         #justDoIt = True
+         import ctypes
+         GetModuleFileNameW = ctypes.windll.kernel32.GetModuleFileNameW
+         GetModuleFileNameW.restype = ctypes.c_int
+         app_path = ctypes.create_string_buffer(1024)
+         rtlength = ctypes.c_int()
+         rtlength = GetModuleFileNameW(None, ctypes.byref(app_path), 1024)
+         passstr = str(app_path.raw)
 
-         modulepathname += app_path + '" %1'
-         LOGWARN("running from: %s, key: %s", app_path, modulepathname)
+         modulepathname += unicode(passstr[0:(rtlength*2)], encoding='utf16') + u'" %1'
+         #LOGWARN("running from: %s, key: %s", app_path, modulepathname)
          
          rootKey = 'bitcoin\\shell\\open\\command'
          try:
@@ -985,16 +1047,12 @@ class ArmoryMainWindow(QMainWindow):
          if action=='DoIt':
  
             LOGINFO('Registering Armory  for current user')
-            baseDir = app_dir
+            baseDir = os.path.dirname(unicode(passstr[0:(rtlength*2)], encoding='utf16'))
             regKeys = []
             regKeys.append(['Software\\Classes\\bitcoin', '', 'URL:bitcoin Protocol'])
             regKeys.append(['Software\\Classes\\bitcoin', 'URL Protocol', ""])
             regKeys.append(['Software\\Classes\\bitcoin\\shell', '', None])
             regKeys.append(['Software\\Classes\\bitcoin\\shell\\open', '',  None])
-            regKeys.append(['Software\\Classes\\bitcoin\\shell\\open\\command',  '', \
-                           modulepathname])
-            regKeys.append(['Software\\Classes\\bitcoin\\DefaultIcon', '',  \
-                           '"%s\\armory48x48.ico"' % baseDir])
 
             for key,name,val in regKeys:
                dkey = '%s\\%s' % (key,name)
@@ -1003,7 +1061,20 @@ class ArmoryMainWindow(QMainWindow):
                SetValueEx(registryKey, name, 0, REG_SZ, val)
                CloseKey(registryKey)
 
-            LOGWARN('app dir: %s', app_dir)
+            regKeysU = []
+            regKeysU.append(['Software\\Classes\\bitcoin\\shell\\open\\command',  '', \
+                           modulepathname])
+            regKeysU.append(['Software\\Classes\\bitcoin\\DefaultIcon', '',  \
+                          '"%s\\armory48x48.ico"' % baseDir])
+            for key,name,val in regKeysU:
+               dkey = '%s\\%s' % (key,name)
+               LOGINFO('\tWriting key: [HKEY_CURRENT_USER\\] ' + dkey)
+               registryKey = CreateKey(HKEY_CURRENT_USER, key)
+               hKey = ctypes.c_int(registryKey.handle)
+               ctypes.windll.Advapi32.RegSetValueExW(hKey, None, 0, REG_SZ, val, (len(val)+1)*2)
+               #SetValueEx(registryKey, val, 0, REG_SZ, val)
+               CloseKey(registryKey)
+            #LOGWARN('app dir: %s', app_dir)
          
 
 
