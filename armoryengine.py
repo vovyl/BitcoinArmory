@@ -22,17 +22,29 @@ SATOSHI_PUBLIC_KEY = ( '04'
       'fc9702847840aaf195de8442ebecedf5b095cdbb9bc716bda9110971b28a49e0'
       'ead8564ff0db22209e0374782c093bb899692d524e9d6a6956e7c5ecbcd68284')
 
+import os
+import sys
+import platform
+opsys = platform.system()
+OS_WINDOWS = 'win32'  in opsys.lower() or 'windows' in opsys.lower()
+OS_LINUX   = 'nix'    in opsys.lower() or 'nux'     in opsys.lower()
+OS_MACOSX  = 'darwin' in opsys.lower() or 'osx'     in opsys.lower()
 
+if OS_WINDOWS and getattr(sys, 'frozen', False):
+   home_dir = os.getenv('APPDATA')
+   log_file = os.path.join(home_dir, "Armory\\ArmoryQt.exe.log")
+
+   sys.stderr = open(log_file, 'a')
+   sys.stdout = open(log_file, 'a')
 
 
 import copy
 import hashlib
 import random
 import time
-import os
 os.environ['PYTHONIOENCODING'] = 'utf-8'
 import string
-import sys
+
 import stat
 import shutil
 import math
@@ -85,11 +97,7 @@ parser.add_option("--coverage_output_dir", dest="coverageOutputDir", default=Non
 parser.add_option("--coverage_include", dest="coverageInclude", default=None, type="str", help="Unit Test Argument - Do not consume")
 
 # Get the host operating system
-import platform
-opsys = platform.system()
-OS_WINDOWS = 'win32'  in opsys.lower() or 'windows' in opsys.lower()
-OS_LINUX   = 'nix'    in opsys.lower() or 'nux'     in opsys.lower()
-OS_MACOSX  = 'darwin' in opsys.lower() or 'osx'     in opsys.lower()
+
 
 ################################################################################
 # We need to have some methods for casting ASCII<->Unicode<->Preferred
