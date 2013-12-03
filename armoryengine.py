@@ -171,11 +171,11 @@ if OS_WINDOWS:
       if argc.value > 0:
          # Remove Python executable and commands if present
          start = argc.value - len(argv)
-         return [uargv[i] for i in
+         return [uargv[i].encode('utf8') for i in
             xrange(start, argc.value)]
    
    sys.argv = win32_unicode_argv()
-
+   
 (CLI_OPTIONS, CLI_ARGS) = parser.parse_args()
 
 
@@ -2486,6 +2486,7 @@ class PyBtcAddress(object):
       self.createPrivKeyNextUnlock             = False
       self.createPrivKeyNextUnlock_IVandKey    = [None, None] # (IV,Key)
       self.createPrivKeyNextUnlock_ChainDepth  = -1
+      self.createPrivKeyNextUnlock_PrevChainDepth  = -1
 
    #############################################################################
    def isInitialized(self):
@@ -2833,11 +2834,12 @@ class PyBtcAddress(object):
          # This is SPECIFICALLY for the case that we didn't have the encr key
          # available when we tried to extend our deterministic wallet, and
          # generated a new address anyway
+         
          self.binPrivKey32_Plain = CryptoAES().DecryptCFB( \
                                      self.createPrivKeyNextUnlock_IVandKey[1], \
                                      SecureBinaryData(secureKdfOutput), \
                                      self.createPrivKeyNextUnlock_IVandKey[0])
-
+            
          for i in range(self.createPrivKeyNextUnlock_ChainDepth):
             self.binPrivKey32_Plain = CryptoECDSA().ComputeChainedPrivateKey( \
                                          self.binPrivKey32_Plain, \
@@ -6542,7 +6544,7 @@ class PyTxDistProposal(object):
       """
       idx, pos, addr = self.processSignature(binSig, txinIndex, checkAllInputs=True)
       if addr:
-         self.signatures[validIdx].append(binSig)
+         self.signatures[self.validIdx].append(binSig)
          return True
 
       return False
@@ -6586,7 +6588,7 @@ class PyTxDistProposal(object):
                   txCopy.inputs[i].binScript = self.txOutScripts[i]
 
             hashCode   = binary_to_int(sigStr[-1])
-            hashCode4  = int_to_binary(hashcode, widthBytes=4)
+            hashCode4  = int_to_binary(hashCode, widthBytes=4)
             preHashMsg = txCopy.serialize() + hashCode4
             if not hashCode==1:
                raise NotImplementedError, 'Non-standard hashcodes not supported!'
@@ -6595,7 +6597,7 @@ class PyTxDistProposal(object):
             for i,pubkey in enumerate(self.inPubKeyLists):
                tempAddr = PyBtcAddress().createFromPublicKeyData(pubkey)
                if tempAddr.verifyDERSignature(preHashMsg, sigStr):
-                  return txInIdx, i, hash160(pubkey)
+                  return txinIdx, i, hash160(pubkey)
 
 
       if checkAllInputs:
@@ -7157,11 +7159,6 @@ class PyBtcWallet(object):
       return (getVersionInt(self.version), getVersionString(self.version))
 
    #############################################################################
-   def getWalletVersion(self):
-      return (getVersionInt(self.version), getVersionString(self.version))
-
-
-   #############################################################################
    def getWalletPath(self):
       return self.walletPath
 
@@ -7173,7 +7170,7 @@ class PyBtcWallet(object):
           return self.addrMap[addr160].getTimeRange()
 
    #############################################################################
-   def getBlockRangeForAddress(self, addr20):
+   def getBlockRangeForAddress(self, addr160):
       if not self.addrMap.has_key(addr160):
          return None
       else:
@@ -7492,8 +7489,8 @@ class PyBtcWallet(object):
    #  But it's also a good first step into general BIP 32 support
    def getChildExtPubFromRoot(self, i):
       root = self.addrMap['ROOT']
-      ekey = ExtendedKey().CreateFromPublic(root.binPublicKey65, root.chaincode)
-      newKey = HDWalletCrypto().ChildKeyDeriv(ekey, i)
+      ekey = self.ExtendedKey().CreateFromPublic(root.binPublicKey65, root.chaincode)
+      newKey = self.HDWalletCrypto().ChildKeyDeriv(ekey, i)
       newKey.setIndex(i)
       return newKey
       #newAddr = PyBtcAddress().createFromExtendedPublicKey(newKey)
@@ -9562,10 +9559,24 @@ class PyBtcWallet(object):
       else:
          self.lockWalletAtTime = RightNow() + tempKeyLifetime
 
-      for addrObj in self.addrMap.values():
+      addrObjPrev = None
+      import operator
+      for addrObj in (sorted(self.addrMap.values(), key=operator.attrgetter('createPrivKeyNextUnlock_ChainDepth'))):
          needToSaveAddrAfterUnlock = addrObj.createPrivKeyNextUnlock
+         if needToSaveAddrAfterUnlock and addrObjPrev is not None:
+               ChainDepth = addrObj.createPrivKeyNextUnlock_ChainDepth - addrObjPrev.createPrivKeyNextUnlock_PrevChainDepth
+               addrObj.createPrivKeyNextUnlock_PrevChainDepth = addrObj.createPrivKeyNextUnlock_ChainDepth               
+               
+               if ChainDepth > 0 and addrObjPrev.createPrivKeyNextUnlock_PrevChainDepth > -1: 
+                  addrObj.createPrivKeyNextUnlock_IVandKey[0] = addrObjPrev.binInitVect16.copy()
+                  addrObj.createPrivKeyNextUnlock_IVandKey[1] = addrObjPrev.binPrivKey32_Encr.copy()
+
+                  addrObj.createPrivKeyNextUnlock_ChainDepth  = ChainDepth
+       
          addrObj.unlock(self.kdfKey)
+ 
          if needToSaveAddrAfterUnlock:
+            addrObjPrev = addrObj
             updateLoc = addrObj.walletByteLoc
             self.walletFileSafeUpdate( [[WLT_UPDATE_MODIFY, addrObj.walletByteLoc, \
                                                 addrObj.serialize()]])
@@ -9698,7 +9709,7 @@ class PyBtcWallet(object):
          gap = desiredIdx - closestIdx
          extend160 = self.chainIndexMap[closestIdx]
          for i in range(gap+1):
-            extend160 = computeNextAddress(extend160)
+            extend160 = self.computeNextAddress(extend160)
             if desiredIdx==self.addrMap[extend160].chainIndex:
                return self.chainIndexMap[desiredIdx]
 
@@ -10694,7 +10705,7 @@ class ArmoryClient(Protocol):
       numList = self.createBlockLocatorNumList(self.topBlk)
       msg = PyMessage('getblocks')
       msg.payload.version  = 1
-      msg.payload.hashList = [getHeaderByHeight(i).getHash() for i in numList]
+      msg.payload.hashList = [self.getHeaderByHeight(i).getHash() for i in numList]
       msg.payload.hashStop = '\x00'*32
 
 
@@ -13304,7 +13315,7 @@ class BlockDataManagerThread(threading.Thread):
       rawBlock  = MAGIC_BYTES
       rawBlock += int_to_hex(blockBytes, endOut=LITTLEENDIAN, widthBytes=4)
       rawBlock += headerObj.serialize()
-      rawBlock += packVarInt(numTx)
+      rawBlock += packVarInt(self.numTx)
       rawBlock += ''.join(rawTxList)
       return rawBlock
 
