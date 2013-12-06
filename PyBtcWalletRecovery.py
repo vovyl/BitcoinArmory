@@ -174,6 +174,7 @@ class PyBtcWalletRecovery(object):
                   except KeyDataError: keymismatch=1
                else: keymismatch=2
                
+            #TODO: if we're doing a full wallet recovery, fill in missing chainindex address entries (possibly missing from corruption)
             
             if keymismacth == 1:
                LOGERROR('private/public key mismatch for %s' % (newAddr.addrStr20))
@@ -299,6 +300,16 @@ class PyBtcWalletRecovery(object):
       binUnpacker.advance(1024)      
 
 #############################################################################
+
+"""
+TODO: setup an array of tests:
+1) Gaps in chained address entries
+2) broken header
+3) oversized comment entries
+4) comments for non existant addr or txn entries
+5) broken private keys, both imported and chained
+6) missing private keys with gaps in chain
+"""
 
 rcwallet = PyBtcWalletRecovery()
 rcwallet.RecoverWallet('D:\\armorydata2\\armory_LDNWRGYW_.wallet', 'tests')
