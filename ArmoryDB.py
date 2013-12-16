@@ -15,12 +15,19 @@
 #
 #######################################################################################################
 
-import leveldb
-from armoryengine import *
+import os
 import struct
 
-dbheaders_path = '/home/goat/.armory/databases/leveldb_headers'
-dbblkdata_path = '/home/goat/.armory/databases/leveldb_blkdata'
+from armoryengine.ArmoryUtils import ARMORY_HOME_DIR, unpackVarInt
+from armoryengine.Block import PyBlockHeader
+from armoryengine.Transaction import PyTx
+import leveldb
+
+
+#dbheaders_path = '/home/goat/.armory/databases/leveldb_headers'
+#dbblkdata_path = '/home/goat/.armory/databases/leveldb_blkdata'
+dbheaders_path = os.path.join(ARMORY_HOME_DIR, 'databases', 'leveldb_headers')
+dbblkdata_path = os.path.join(ARMORY_HOME_DIR, 'databases', 'leveldb_blkdata')
 
 ########################################################################################################
 # front end class, implements the db parsing and querying methods.
@@ -241,7 +248,7 @@ class ArmoryDB:
       if(len(val)==84):
          key = '\x03' + val[80:84]
          try:
-            val = dArmoryDB.bblkdata.Get(key)
+            val = ArmoryDB.bblkdata.Get(key)
             return True
          except:
             return False
