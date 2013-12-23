@@ -12,9 +12,131 @@ class PyBtcWalletRecovery(object):
    """
 
 #############################################################################
-   def RecoveryDone(self):
-      LOGWARN('Done recovering')
+   def BuildLogFile(self, WalletPath, errorCode=0):
+      """
+      The recovery function has ended and called this. Review the analyzed data, build a log and return negative values if the recovery couldn't complete
+      
+      """
 
+      newWalletPath = WalletPath + ".log"
+      basename = os.path.basename(WalletPath)
+            
+      self.logfile = open(newWalletPath, 'ab')
+      self.logfile.write('Recovering wallet %s on %s: \r\n' % (basename[0:-17], time.ctime()))
+      self.logfile.write('Using %s recovery mode\r\n' % (self.smode))
+      
+      if errorCode == -1:
+         self.logfile.write('ERROR: no such file at given path\r\n')
+         self.EndLog()
+         return errorCode
+      elif errorCode == -2:
+         self.logfile.write('ERROR: failed to pass consistency check\r\n')
+         self.EndLog()
+         return errorCode
+      elif errorCode == -3:
+         self.logfile.write('ERROR: failed to unpack wallet header\r\n')
+         self.EndLog()
+         return errorCode
+           
+      if self.WO == 0:
+         self.logfile.write('Wallet is Watch Only\r\n')
+      else:
+         self.logfile.write('Wallet contains private keys ')
+         if self.useEnc == 0:
+            self.logfile.write('and doesn\'t use encryption\r\n')
+         else:
+            self.logfile.write('and uses encryption')
+            
+      self.logfile.write('The wallet file is %d  bytes, of which %d bytes were readable\r\n' % (self.fileSize, self.dataLastOffset))
+      self.logfile.write('%d chain addresses, %d imported keys and %d comments were found\r\n')
+            
+      
+      #### chain keys      
+      self.logfile.write('Found %d chained address entries\r\n' % (self.naddress))
+      
+      if len(self.brokenSequence) == 0:
+         self.logfile.write('All chained addresses were arranged sequentially in the wallet file\r\n')
+      else:
+         self.logfile.write('The following %d addresses were not arranged sequentially in the wallet file:\r\n' % (len(self.brokenSequence)))
+         for i in range(0, len(self.brokenSequence)):
+            self.logfile.write('   chainIndex %s at file offset %s\r\n' % (self.brokenSequence[i][0], self.brokenSequence[i][1]))
+            
+      if len(self.sequenceGaps) == 0:
+         self.logfile.write('There are no gaps in the address chain\r\n')
+      else:
+         self.logfile.write('Found %d gaps in the address chain:\r\n' % (len(self.sequenceGaps)))
+         for i in range(0, len(self.sequenceGaps)):
+            self.logfile.write('   from chainIndex %d to %d\r\n' % (self.sequenceGaps[i][0], self.sequenceGaps[i][1]))
+      
+      if len(self.brokenPublicKeyChain) == 0:      
+         self.logfile.write('No invalid chained public address was found\r\n')
+      else:
+         self.logfile.write('Found %d invalid chained public addresses:\r\n' % (len(self.brokenPublicKeyChain)))
+         for i in range(0, len(self.brokenPublicKeyChain)):
+            self.logfile.write('   at chainIndex %d, file offset %s\r\n' % (self.brokenPublicKeyChain[i][0], self.brokenPublicKeyChain[i][1]))
+            
+      if len(self.chainCodeCorruption) == 0:
+         self.logfile.write('No chaincode corruption was found\r\n')
+      else:
+         self.logfile.write('Found %d instances of chaincode corruption:\r\n' % (len(self.chainCodeCorruption)))
+         for i in range(0, len(self.chainCodeCorruption)):
+            self.logfile.write('   at chainIndex %d, file offset %d\r\n' % (self.chainCodeCorruption[i][0], self.chainCodeCorruption[i][1]))
+            
+      if len(self.invalidPublicKey) == 0:
+         self.logfile.write('All chained public keys are valid EC points\r\n')
+      else:
+         self.logfile.write('%d chained public keys are invalid EC points:\r\n' % (len(self.invalidPublicKey)))
+         for i in range(0, len(self.invalidPublicKey)):
+            self.logfile.write('   at chainIndex %d, file offset %d' % (self.invalidPublicKey[i][0], self.invalidPublicKey[i][1]))
+            
+      if len(self.missingPubKey) == 0:
+         self.logfile.write('No chained public key is missing\r\n')
+      else:
+         self.logfile.write('%d chained public keys are missing:\r\n' % (len(self.missingPubKey)))
+         for i in range(0, len(self.missingPubKey)):
+            self.logfile.write('   at chainIndex %d, file offset %d' % (self.missingPubKey[i][0], self.missingPubKey[i][1]))
+
+      if len(self.hashValMismatch) == 0:
+         self.logfile.write('All entries were saved under their matching hashVal\r\n')
+      else:
+         self.logfile.write('%d address entries were saved under an erroneous hashVal:\r\n' % (len(self.hashValMismatch)))
+         for i in range(0, len(self.hashValMismatch)):
+            self.logfile.write('   at chainIndex %d, file offset %d\r\n' % (self.hashValMismatch[i][0], self.hashValMismatch[i][1]))
+      
+      if self.WO == 1:  
+         if len(self.unmatchedPair) == 0:
+            self.logfile.write('All chained public keys match their respective private keys\r\n')
+         else:
+            self.logfile.write('%d public keys do not match their respective private key:\r\n' % (len(self.unmatchedPair)))
+            for i in range(0, len(self.unmatchedPair)):
+               self.logfile.write('   at chainIndex %d, file offset %d\r\n' % (self.unmatchedPair[i][0], self.unmatchedPair[i][1]))
+            
+      if len(self.misc) > 0:
+         self.logfile.write('%s miscalleneous errors were found:\r\n')
+         for i in range(0, len(self.misc)):
+            self.logfile.write('   %d' % self.misc[i])
+      
+      #### imported keys      
+      self.logfile.write('Found %d imported address entries\r\n' % (self.nImports))
+      
+      if len(self.importedErr) == 0:
+         self.logfile.write('No errors were found within the imported address entries\r\n')
+      else:
+         self.logfile.write('%d errors were found within the imported address entries:\r\n' % (len(self.importedErr)))
+         for i in range(0, len(self.importedErr)):
+            self.logfile.write('   %s' % (self.importedErr[i]))
+      
+      #### comments
+            
+      self.EndLog()
+      return 0 
+   
+   def EndLog(self):
+      
+      self.logfile.write('Recovery done\r\n\r\n\r\n')
+      self.logfile.close()
+   
+   #############################################################################
    def RecoverWallet(self, WalletPath, Passphrase=None, Mode='Bare', GUI=False):
       """
       Modes:
@@ -24,63 +146,75 @@ class PyBtcWalletRecovery(object):
             Skips comments, unprocessed public keys and otherwise corrupted data without attempting to fix it.
 
          3) Full: Recovers as much data as possible from the wallet.
-
+         
+         4) Meta: Get all labels and comment entries from the wallet, return as list
       """
 
       rmode = 2
-      if Mode == 'Stripped' or Mode == 1: rmode = 1
-      elif Mode == 'Full' or Mode == 3: rmode = 3
+      self.smode = 'bare'
+      if Mode == 'Stripped' or Mode == 1: 
+         rmode = 1
+         self.smode = 'stripped'
+      elif Mode == 'Full' or Mode == 3: 
+         rmode = 3
+         self.smode = 'full'
+      elif Mode == 'Meta' or Mode == 4: 
+         rmode = 4
+         self.smode = 'meta'
 
-      LOGWARN('Started recovery of wallet: %s' % (WalletPath))
+      self.fileSize=0
       if not os.path.exists(WalletPath):
          if GUI:
             self.BadPath(WalletPath)
             return
          else:
-            raise FileExistsError, 'no such wallet file at given path: ' + WalletPath
+            return self.BuildLogFile(WalletPath, -1)
+      else: 
+         self.fileSize = os.path.getsize(WalletPath)
 
       toRecover = PyBtcWallet()
       toRecover.walletPath = WalletPath
 
-   #consistency check
+      #consistency check
       try:
-         LOGWARN('starting consistency check')
          toRecover.doWalletFileConsistencyCheck()
-         LOGWARN('consistency check successful')
       except KeyDataError, errmsg:
-         LOGEXCEPT('***ERROR:  Wallet file had unfixable errors: %s' % (errmsg))
+         return self.BuildLogFile(WalletPath, -2)
 
    #TODO: stronger checks on the path fed
 
-   #fetch wallet content
-      LOGWARN('reading wallet')
+      #fetch wallet content
       wltfile = open(WalletPath, 'rb')
       wltdata = BinaryUnpacker(wltfile.read())
       wltfile.close()
-      LOGWARN('read successful')
 
-   #check header
-      LOGWARN('unpacking header')
+      #unpack header
       returned = toRecover.unpackHeader(wltdata)
       if returned < 0:
-         LOGERROR('unpack header failed')
-         return -3
+         return self.BuildLogFile(WalletPath, -3)
+      
+      self.useEnc=0
 
-      LOGWARN('header unpacked successfully')
-
-   #check for private keys (watch only?)
+      #check for private keys (watch only?)
       if toRecover.watchingOnly is True:
          LOGWARN('no private keys in this wallet, checking for chain consistency')
+         self.WO = 1
       else:
-      #check if wallet is encrypted
-         if toRecover.isLocked==True and Passphrase==None:
-            #locked wallet and no passphrase, prompt the user
-            self.AskUnlock()
-
+         #check if wallet is encrypted
+         self.WO = 0
+         if toRecover.isLocked==True and Passphrase==None and rmode < 4:
+            #locked wallet and no passphrase, prompt the user if we're using the gui           
+            if GUI==True:
+               self.AskUnlock()
+            else:
+               LOGWARN('Locked wallet, no passphrase!')
+               return self.RecoveryDone()
+            
          newAddr = toRecover.addrMap['ROOT']
 
-      #if the wallet uses encryption, unlock ROOT and verify it
+         #if the wallet uses encryption, unlock ROOT and verify it
          if toRecover.isLocked:
+            self.useEnc
             LOGWARN('deriving passphrase')
             SecurePassphrase = SecureBinaryData(Passphrase)
             if not toRecover.kdf:
@@ -104,175 +238,75 @@ class PyBtcWalletRecovery(object):
             SecurePassphrase = None
             LOGWARN('wallet is not encrypted')
 
-      #create recovered wallet
-         RecoveredWallet = PyBtcWallet()
-         if rmode > 1: RecoveredWallet.addrPoolSize = toRecover.addrPoolSize #dont rebuild the address chain in stripped mode
-         newwalletPath = os.path.join(os.path.dirname(toRecover.walletPath), 'armory_%s_RECOVERED.wallet' % (toRecover.uniqueIDB58))
-         if os.path.exists(newwalletPath):
-            LOGERROR('recovery file already exist!')
-            return -3
+         #create recovered wallet
+         if rmode != 4:
+            RecoveredWallet = PyBtcWallet()
+            newwalletPath = os.path.join(os.path.dirname(toRecover.walletPath), 'armory_%s_RECOVERED.wallet' % (toRecover.uniqueIDB58))
+            if os.path.exists(newwalletPath):
+               LOGERROR('recovery file already exist!')
+               return -3
+   
+            LOGWARN('creating recovery from root key')
+            RecoveredWallet.createNewWallet(newWalletFilePath=newwalletPath, securePassphrase=SecurePassphrase, \
+                                            plainRootKey=newAddr.binPrivKey32_Plain, chaincode=newAddr.chaincode, \
+                                            #not registering with the BDM, so no addresses are computed
+                                            doRegisterWithBDM=False, \
+                                            shortLabel=toRecover.labelName, longLabel=toRecover.labelDescr)
+            LOGWARN('recovery file created successfully')
+   
+            if rmode == 1: self.RecoveryDone() #stripped recovery, we are done
 
-         LOGWARN('creating recovery from root key')
-         RecoveredWallet.createNewWallet(newWalletFilePath=newwalletPath, securePassphrase=SecurePassphrase, \
-                                         plainRootKey=newAddr.binPrivKey32_Plain, chaincode=newAddr.chaincode, \
-                                         #not registering with the BDM, so no addresses are computed
-                                         doRegisterWithBDM=False, \
-                                         shortLabel=toRecover.labelName, longLabel=toRecover.labelDescr)
-         LOGWARN('recovery file created successfully')
-
-      #compute address chain
-         RecoveredWallet.fillAddressPool(doRegister=False)
-
-         if rmode == 1: self.RecoveryDone() #stripped recovery, we are done
-
-      addrid = 0
-      WOaddrDict = {}
-      PrevWOAddr = PyBtcAddress()
-      addrChainList = []
-   #move on to wallet body
-      chaindepthDict = {}
+      
+      
+      
+      #address entries may not be saved sequentially. To check the address chain is valid, all addresses will be unserialized
+      #and saved by chainIndex in addrDict. Then all addresses will be checked for consistency and proper chaining. Imported 
+      #private keys and comments will be added at the tail of the file.
+      
+      self.naddress = 0
+      addrDict = {} #holds address chain sequentially, ordered by chainIndex
+      
+      self.nImports = 0
+      importedDict = {} #holds imported address, by order of apparition
+      
+      self.ncomments = 0
+      commentDict = {} #holds all comments entries
+            
+      #move on to wallet body
       toRecover.lastComputedChainIndex = -UINT32_MAX
       toRecover.lastComputedChainAddr160  = None
       LOGWARN('Now parsing')
       while wltdata.getRemainingSize()>0:
          byteLocation = wltdata.getPosition()
-         LOGWARN('At offset: %d' % (byteLocation))
 
          try:
             dtype, hashVal, rawData = toRecover.unpackNextEntry(wltdata)
          except:
+            #error in the binary file content. Try to open the next entry by forwarding by possible entry sizes
             LOGERROR('Unpack error')
-            self.RecoveryDone()
+            break
 
-         if dtype==WLT_DATATYPE_KEYDATA:
-            addrid = addrid +1
+         if dtype==WLT_DATATYPE_KEYDATA and rmode != 4:
             newAddr = PyBtcAddress()
             newAddr.unserialize(rawData)
             newAddr.walletByteLoc = byteLocation + 21
-            # Fix byte errors in the address data
-            fixedAddrData = newAddr.serialize()
-            if not rawData==fixedAddrData:
-               LOGWARN('found byte error in address data')
 
             if newAddr.useEncryption:
                newAddr.isLocked = True
-
-            addrChainList[addrid] = newAddr.chainIndex
-
-            #if it's a watch only wallet, check for chained addresses consistency
-            if toRecover.watchingOnly:
-               WOaddrDict[newAddr.chainIndex] = newAddr
-
-               #if newAddr.chainIndex>1:
-                  #nextWOaddr = PrevWOAddr.extendAddressChain(None)
-                  #if nextWOaddr.binPublicKey65 != newAddr.binPublicKey65:
-                  #LOGWARN('index %d, chainIndex %d' % (addrid, newAddr.chainIndex))
-                  #LOGWARN('inconsistency in the public address chain found at index %d:' % (addrid))
-
-               #PrevWOAddr = PyBtcAddress()
-               #PrevWOAddr = newAddr.copy()
-
+             
+            #save address entry count in the file, to check for entry sequence
+            if newAddr.chainIndex > -2 :
+               addrDict[newAddr.chainIndex] = [newAddr, hashVal, self.naddress, byteLocation]
+               self.naddress = self.naddress +1
             else:
-               #check private key against public key, possibly compute missing ones, depending on the recovery mode
-               keymismatch=0
-               """
-               0: public key matches private key
-               1: public key doesn't match private key
-               2: private key is missing
-               3: public key is missing
-               """
-               if not newAddr.hasPrivKey():
-                  keymismatch=2
-
-                  if newAddr.chainIndex >= 0:
-                     #chained private key
-                     checkKey=1
-                     if newAddr.createPrivKeyNextUnlock:
-                        if rmode < 3: checkKey=0
-                        else:
-                           #have to build the private key on unlock, look for the closest private key to chain off of
-                           for i in xrange(newAddr.chainIndex -1, 0):
-                              try:
-                                 prevHash = chaindepthDict[i]
-                                 if toRecover.addrMap[prevHash].createPrivKeyNextUnlock:
-                                    newAddr.createPrivKeyNextUnlock_IVandKey[0] = toRecover.addrMap[prevHash].binInitVect16.copy()
-                                    newAddr.createPrivKeyNextUnlock_IVandKey[1] = toRecover.addrMap[prevHash].binPrivKey32_Encr.copy()
-
-                                    newAddr.createPrivKeyNextUnlock_ChainDepth = newAddr.chainIndex - toRecover.addrMap[prevHash].chainIndex
-                                    break
-
-                              except KeyError:
-                                 continue
-
-                     if checkKey == 1:
-                        try:
-                           """
-                           TODO: unlock computes missing chained private keys. This shouldn't be necessary with unencrypted wallets.
-                           For now report on missing chained private keys in unencrypted wallets if by any chance the code runs into one
-                           To cover all bases, the chaining of private keys should be added for unencrypted addrMap entries
-                           """
-                           newAddr.unlock(toRecover.kdfKey)
-                        except KeyDataError: keymismatch=1
-                     else: keymismatch=2
-
-               elif newAddr.chainIndex <= -2:
-                     #imported private key
-                     if newAddr.hasPubKey():
-                        if newAddr.isLocked:
-                           try:
-                              newAddr.unlock(toRecover.kfdKey)
-                           except KeyDataError: keymismatch=1
-
-                        #unlock checks for private/public key matching, so we only have to check for it if the private key isn't locked
-                        elif not CryptoECDSA().CheckPubPrivKeyMatch(newAddr.binPrivKey32_Plain, \
-                                                  newAddr.binPublicKey65): keymismatch=1
-
-                     else: keymismatch=3
-
-               #TODO: if we're doing a full wallet recovery, fill in missing chainIndex address entries (possibly missing from corruption)
-
-               if keymismatch == 0:
-                  if newAddr.isLocked: newAddr.unlock(toRecover.kdfKey)
-               elif keymismatch == 1:
-                  LOGERROR('private/public key mismatch for %s' % (newAddr.addrStr20))
-                  newAddr.binPublicKey65 = CryptoECDSA().ComputePublicKey(self.binPrivKey32_Plain)
-                  keymismatch = 0
-               elif keymismatch == 3:
-                  LOGWARN('missing public key')
-                  newAddr.binPublicKey65 = CryptoECDSA().ComputePublicKey(self.binPrivKey32_Plain)
-                  keymismatch = 0
-               elif keymismatch == 2:
-                  LOGWARN('missing imported private key')
-                  pass
-
-               newAddr.addrStr20 = newAddr.binPublicKey65.getHash160()
-               toSave = PyBtcAddress()
-               toSave = newAddr.copy()
-
-               if newAddr.addrStr20 != hashVal:
-                  LOGWARN('key pair hash160 doesnt match the hashVal it was saved under!')
-
-               if newAddr.useEncryption:
-                  newAddr.lock(toRecover.kdfKey)
-                  toSave.lock(RecoveredWallet.kdfKey) #lock the address entry with the recovered wallet kdfKey before saving it
-
-               toRecover.addrMap[newAddr.addrStr20] = newAddr
-               chaindepthDict[newAddr.chainIndex] = newAddr.addrStr20
-
-               if keymismatch == 0:
-                  try:
-                     getAddr = RecoveredWallet.addrMap[newAddr.addrStr20]
-                  except:
-                     #address entry wasn't computed as part of the first 100 indexes, save it in the recovered wallet
-                     RecoveredWallet.walletFileSafeUpdate([[WLT_UPDATE_ADD, dtype, toSave.addrStr20, toSave]])
+               importedDict[self.nImports] = [newAddr, hashVal, byteLocation]
+               self.nImports = self.nImports +1
+               
 
          elif dtype in (WLT_DATATYPE_ADDRCOMMENT, WLT_DATATYPE_TXCOMMENT):
-            try:
-               fetchAddr = toRecover.addrMap[hashVal]
-            except KeyError:
-               LOGWARN('no address entry matches comment hash')
-
-            if rmode == 3: RecoveredWallet.walletFileSafeUpdate([[WLT_UPDATE_ADD, dtype, hashVal, rawData]])
+            if rmode == 3: 
+               commentDict[self.ncomments] = [rawData, hashVal, dtype]
+               self.ncomments = self.ncomments +1
 
          elif dtype==WLT_DATATYPE_OPEVAL:
             LOGWARN('OP_EVAL not supported in wallet yet')
@@ -281,61 +315,259 @@ class PyBtcWalletRecovery(object):
             pass
          else:
             LOGERROR('invalid dtype: %d' % (dtype))
-            self.RecoveryDone()
+            #try same trick as to recover from unpack errors
+            
+      self.dataLastOffset = wltdata.getPosition()
 
-   #done
-      test = 3
-      if toRecover.watchingOnly and test==1:
-         #inspect WO address entries
-         prevAddr = PyBtcAddress()
-         prevAddr = WOaddrDict[0]
-         for i in range(1, addrid):
-            currAddr = PyBtcAddress()
-            currAddr = WOaddrDict[i]
-            extdAddr = prevAddr.extendAddressChain(None)
+      #TODO: verify chainIndex 0 was derived from the root key
 
-            if currAddr.addrStr20 != extdAddr.addrStr20:
-               LOGWARN('address inconsistency at index: %d' % (i))
+      currSequence = addrDict[0].chainIndex
+      """
+      Set of lists holding various errors at given indexes. Used at the end of the recovery process to compile a wallet specific log of encountered
+      inconsistencies
+      """
+      self.brokenSequence = [] #inconsistent address entry order in the file
+      self.sequenceGaps = [] #gaps in key pair chain
+      self.brokenPublicKeyChain = [] #for public keys: (N-1)*chaincode != N
+      self.chainCodeCorruption = [] #addr[N] chaincode doesnt match addr[0] chaincode
+      self.invalidPubKey = [] #pub key isnt a valid EC point
+      self.missingPubKey = [] #addr[N] has no pub key
+      self.hashValMismatch = [] #addrStr20 doesnt match hashVal entry in file      
+      self.unmatchedPair = [] #private key doesnt yield public key
+      self.misc = [] #miscellaneous errors
+      self.importedErr = [] #all imported keys related errors
+      
+      chaincode = addrDict[0][0].chainCode.toHexStr()
+      
+      #chained key pairs. for rmode is 4, no need to skip this part, naddress will be 0
+      for i in range(0, self.naddress):      
+         entrylist = []
+         entrylist = list(addrDict[i])
+         newAddr = entrylist[0]
+         
+         # Fix byte errors in the address data         
+         fixedAddrData = newAddr.serialize()
+         if not rawData==fixedAddrData:
+            LOGWARN('found byte error in address data')
+            newAddr = PyBtcAddress()
+            newAddr.unserialize(fixedAddrData)
+            entrylist[0] = newAddr
+            addrDict[i] = entrylist
+        
+         #check public key is a valid EC point
+         if newAddr.hasPubKey():
+            CryptoECDSA().VerifyPublicKeyValid(newAddr.binPubKey65)
+            LOGERROR('invalid pub key at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
+            self.invalidPubKey.append([newAddr.chainIndex, byteLocation])
+         else:
+            LOGWARN('missing pub key at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
+            self.missingPubKey.append([newAddr.chainIndex, byteLocation])
+         
+         #check chaincode consistency
+         newCC = newAddr.chainCode.toHexStr()
+         if newCC != chaincode:
+            LOGWARN('chaincode curroption at index: %d in wallet %s' % (newAddr.chainIndex, WalletPath))
+            self.chainCodeCorruption.append([newAddr.chainIndex, byteLocation])
+            
+         #check the address entry sequence
+         nextSequence = newAddr.chainIndex
+         if nextSequence != currSequence:
+            if (nextSequence - currSequence) != 1:
+               self.brokenSequence.append([newAddr.chainIndex, entrylist[3]])
+         currSequence = nextSequence
+         
+         #check for gaps in the sequence
+         if newAddr.chainIndex >0:
+            seq = newAddr.chainIndex -1
+            prevEntry = []
+            while seq > 0:
+               try:
+                  prevEntry = addrDict[seq]
+                  break
+               except:
+                  continue
+               seq = seq -1
+               
+            prevEntry = list(addrDict[seq])
+            
+            gap = newAddr.chainIndex - seq
+            if gap > 1:
+               self.sequenceGaps.append([seq, newAddr.chainIndex])
+         
+            #check public address chain
+            if newAddr.hasPubKey():
+               prevAddr = prevEntry[0]
+               
+               cid = 0
+               extended = prevAddr.binPubKey65
+               while cid < gap:
+                  extended = CryptoECDSA().ComputeChainedPublicKey(extended, prevAddr.chaincode)
+                  cid = cid +1
+                  
+               if extended.toHexStr() != newAddr.binPubKey.tohexStr():
+                  LOGERROR('Broken public key chain at index %d in wallet %s' % (newAddr.chainIndex, WalletPath))
+                  self.brokenPublicKeyChain.append([newAddr.chainIndex, byteLocation])
+            
 
-            prevAddr = currAddr
+         if not toRecover.watchingOnly:            
+            #not a watch only wallet, check private key chaining and integrity   
+           
+            #check private key against public key, possibly compute missing ones, depending on the recovery mode
+            
+            #TODO: if the public key is forked but it's private key matches, save as imported key pair
+            #      if a private key forked, save as imported pair
+            
+            keymismatch=0
+            """
+            0: public key matches private key
+            1: public key doesn't match private key
+            2: private key is missing (encrypted)
+            3: public key is missing
+            4: private key is missing (unencrypted)
+            """
+            if not newAddr.hasPrivKey():
+               #if the entry has no private key, mark it for computation
+               keymismatch=2
 
-      if toRecover.watchingOnly and test==2:
-         prevAddr = PyBtcAddress()
-         prevAddr = WOaddrDict[7298]
-         prevAddrChaincode = prevAddr.chaincode.toHexStr()
-         for i in range(0, addrid):
-            currAddr = PyBtcAddress()
-            currAddr = WOaddrDict[i]
-            extdAddr = currAddr.extendAddressChain(None)
-            currAddrChaincode = currAddr.chaincode.toHexStr()
+               if newAddr.chainIndex >= 0:
+                  #chained private key
+                  if newAddr.createPrivKeyNextUnlock:
+                     #have to build the private key on unlock; we can use prevAddr for that purpose, used to chain the public key off of
+                     if newAddr.createPrivKeyNextUnlock:
+                        newAddr.createPrivKeyNextUnlock_IVandKey[0] = prevAddr.binInitVect16.copy()
+                        newAddr.createPrivKeyNextUnlock_IVandKey[1] = prevAddr.binPrivKey32_Encr.copy()
 
-            if currAddrChaincode != prevAddrChaincode:
-               LOGWARN('unconsistent chaincode')
-            if prevAddr.addrStr20 == extdAddr.addrStr20:
-               LOGWARN('address inconsistency fixed with: %d' % (i))
+                        newAddr.createPrivKeyNextUnlock_ChainDepth = newAddr.chainIndex - newAddr.chainIndex
+                  else:
+                     if not newAddr.useEncryption:
+                        #uncomputed private key in a non encrypted wallet? definitely not supposed to happen
+                        keymismatch = 4
+                        LOGERROR('uncomputed private key in unencrypted wallet at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
+                        self.misc.append('uncomputed private key in unencrypted wallet at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
+                  
+            #unlock if necessary      
+            if keymismatch == 0 or keymismatch == 2:               
+               if newAddr.isLocked:     
+                  try:
+                     newAddr.unlock(toRecover.kdfKey)
+                     keymismatch = 0
+                  except KeyDataError: 
+                     keymismatch=1
 
-            #prevAddr = currAddr
+            #deal with mismatch scenarios   
+            if keymismatch == 1:
+               newAddr.binPublicKey65 = CryptoECDSA().ComputePublicKey(self.binPrivKey32_Plain)
+               LOGERROR('pub key doesnt match private key at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
+               self.unmatchedPair.append(newAddr.chainIndex)
+               keymismatch = 0
+               
+            elif keymismatch == 2:
+               LOGERROR('no private at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
+               
+            elif keymismatch == 3:
+               newAddr.binPublicKey65 = CryptoECDSA().ComputePublicKey(self.binPrivKey32_Plain)
+               newAddr.addrStr20 = newAddr.binPublicKey65.getHash160()                  
+               keymismatch = 0
 
-      if toRecover.watchingOnly and test==3:
-         prevAddr = PyBtcAddress()
-         prevAddr = WOaddrDict[7298]
-         prevAddrChaincode = prevAddr.chaincode.toHexStr()
+            #if we have clear possible mismatches (or there were none), proceed to consistency checks
+            if keymismatch == 0:
+               if not CryptoECDSA().CheckPubPrivKeyMatch(newAddr.binPrivKey32_Plain, newAddr.binPubKey65):
+                  LOGERROR('pub key doesnt match private key at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
+                  self.unmatchedPair.append([newAddr.chainIndex, byteLocation])
+                 
+               if newAddr.addrStr20 != entrylist[1]:
+                  LOGERROR('addr hash160 doesnt match the hashVal it was saved under at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
+                  self.hashValMismatch.append([newAddr.chainIndex, byteLocation])
+   
+            if newAddr.useEncryption:
+               newAddr.lock(toRecover.kdfKey)
+   
 
-         abc = CryptoECDSA().VerifyPublicKeyValid(prevAddr.binPublicKey65)
-         if abc:
-            abc = abc +1
-
-      if toRecover.watchingOnly and test==4:
-         prevAddr = PyBtcAddress()
-         prevAddr = WOaddrDict[7297]
-         prevAddrChaincode = prevAddr.chaincode.toHexStr()
-
-         #start =
-         #for i in range (0, 256):
-
-            #prevAddrChaincodeFlipped =
-
-      self.RecoveryDone()
+      #imported addresses
+      for i in range(0, self.nImports):
+         entrylist = []
+         entrylist = list(importedDict[i])
+         newAddr = entrylist[0]
+         
+         # Fix byte errors in the address data         
+         fixedAddrData = newAddr.serialize()
+         if not rawData==fixedAddrData:
+            LOGWARN('found byte error in address data')
+            newAddr = PyBtcAddress()
+            newAddr.unserialize(fixedAddrData)
+            entrylist[0] = newAddr
+            importedDict[i] = entrylist
+        
+         #check public key is a valid EC point
+         if newAddr.hasPubKey():
+            CryptoECDSA().VerifyPublicKeyValid(newAddr.binPubKey65)
+            LOGERROR('invalid pub key for imported address %d in wallet %s' % (i, WalletPath))
+            self.importedErr.append('invalid pub key for imported address %d at file offset %d' % (i, entrylist[2]))
+         else:
+            LOGWARN('missing pub key for imported address %d in wallet %s' % (i, WalletPath))
+            self.importedErr.append('missing pub key for imported address %d at file offset %d' % (i, entrylist[2]))
+         
+         #if there a private key in the entry, check for consistency   
+         if not newAddr.hasPrivKey():
+            LOGWARN('missing private key for imported address %d in wallet %s' % (i, WalletPath))
+            self.importedErr.append('missing private key for imported address %d at file offset %d' % (i, entrylist[2]))
+         else:
+            keymismatch = 0
+            if newAddr.isLocked:
+               try:
+                  newAddr.unlock(toRecover.kdfKey)
+               except KeyDataError:
+                  keymismatch = 1
+                  LOGWARN('pub key doesnt match private key for imported address %d in wallet %s' % (i, WalletPath))
+                  self.importedErr.append('pub key doesnt match private key for imported address %d at file offset %d' % (i, entrylist[2]))
+            
+                  
+            if keymismatch == 0:
+               #pubkey is present, check against priv key
+               if not CryptoECDSA().CheckPubPrivKeyMatch(newAddr.binPrivKey32_Plain, newAddr.binPubKey65):
+                  keymismatch = 1
+                  LOGWARN('pub key doesnt match private key for imported address %d in wallet %s' % (i, WalletPath))
+                  self.importedErr.append('pub key doesnt match private key for imported address %d at file offset %d' % (i, entrylist[2]))
+            
+            if keymismatch == 1:
+               #compute missing/invalid pubkey                    
+               newAddr.binPublicKey65 = CryptoECDSA().ComputePublicKey(newAddr.binPrivKey32_Plain)
+ 
+            #check hashVal   
+            if newAddr.addrStr20 != entrylist[1]:
+               newAddr.addrStr20 = newAddr.binPublicKey65.getHash160()
+               LOGWARN('hashVal doesnt match addrStr20 for imported address %d in wallet %s' % (i, WalletPath))
+               self.importedErr.append('hashVal doesnt match addrStr20 for imported address %d at file offset %d' % (i, entrylist[2]))
+               
+            #if the entry was encrypted, lock it back with the new wallet kdfkey
+            if newAddr.useEncryption:
+               newAddr.lock(RecoveredWallet.kdfKey)
+               
+      #TODO: check comments consistency
+      
+      if rmode < 4:
+         #build address pool
+         RecoveredWallet.fillAddressPool(self.naddress, True, False)
+      
+         #save imported addresses
+         for i in range(0, self.nImports):
+            entrylist = []
+            entrylist = list(importedDict[i])
+            newAddr = entrylist[0]            
+            RecoveredWallet.walletFileSafeUpdate([[WLT_UPDATE_ADD, WLT_DATATYPE_KEYDATA, newAddr.addrStr20, newAddr]])
+      
+         #save comments
+         if rmode == 3:
+            for i in range(0, self.ncomments):
+               entrylist = []
+               entrylist = list(importedDict[i])    
+               RecoveredWallet.walletFileSafeUpdate([[WLT_UPDATE_ADD, entrylist[2], entrylist[1], entrylist[0]]]) 
+      
+      
+      #nothing to process anymore at this point. if the recovery mode is 4 (meta), just return the comments dict
+      #now to build the specific log file
+                        
+      return self.BuildLogFile(newwalletPath)
 
    #############################################################################
    #GUI related members start here
@@ -357,6 +589,7 @@ class PyBtcWalletRecovery(object):
       else: return
 
 #############################################################################
+
 """
 TODO: setup an array of tests:
 1) Gaps in chained address entries
