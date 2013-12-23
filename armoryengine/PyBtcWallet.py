@@ -2629,8 +2629,7 @@ class PyBtcWallet(object):
       for addrObj in (sorted(self.addrMap.values(), key=operator.attrgetter('chainIndex'))):
          needToSaveAddrAfterUnlock = addrObj.createPrivKeyNextUnlock
          if needToSaveAddrAfterUnlock and addrObjPrev is not None:
-               ChainDepth = addrObj.createPrivKeyNextUnlock_ChainDepth - addrObjPrev.createPrivKeyNextUnlock_PrevChainDepth
-               addrObj.createPrivKeyNextUnlock_PrevChainDepth = addrObj.createPrivKeyNextUnlock_ChainDepth
+               ChainDepth = addrObj.chainIndex - addrObjPrev.chainIndex
 
                if ChainDepth > 0 and addrObjPrev.chainIndex > -1:
                   addrObj.createPrivKeyNextUnlock_IVandKey[0] = addrObjPrev.binInitVect16.copy()

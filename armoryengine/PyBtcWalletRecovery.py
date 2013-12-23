@@ -22,7 +22,7 @@ class PyBtcWalletRecovery(object):
       basename = os.path.basename(WalletPath)
             
       self.logfile = open(newWalletPath, 'ab')
-      self.logfile.write('Recovering wallet %s on %s: \r\n' % (basename[0:-17], time.ctime()))
+      self.logfile.write('Recovering wallet %s on %s: \r\n' % (basename, time.ctime()))
       self.logfile.write('Using %s recovery mode\r\n' % (self.smode))
       
       if errorCode == -1:
@@ -37,6 +37,10 @@ class PyBtcWalletRecovery(object):
          self.logfile.write('ERROR: failed to unpack wallet header\r\n')
          self.EndLog()
          return errorCode
+      elif errorCode == -4:
+         self.logfile.write('ERROR: invalid or missing passphrase for encrypted wallet\r\n')
+         self.EndLog()
+         return errorCode      
            
       if self.WO == 0:
          self.logfile.write('Wallet is Watch Only\r\n')
@@ -50,8 +54,7 @@ class PyBtcWalletRecovery(object):
       self.logfile.write('The wallet file is %d  bytes, of which %d bytes were readable\r\n' % (self.fileSize, self.dataLastOffset))
       self.logfile.write('%d chain addresses, %d imported keys and %d comments were found\r\n')
             
-      
-      #### chain keys      
+      #### chained keys      
       self.logfile.write('Found %d chained address entries\r\n' % (self.naddress))
       
       if len(self.brokenSequence) == 0:
@@ -208,7 +211,7 @@ class PyBtcWalletRecovery(object):
                self.AskUnlock()
             else:
                LOGWARN('Locked wallet, no passphrase!')
-               return self.RecoveryDone()
+               return self.BiuldLogFile(WalletPath, -4)
             
          newAddr = toRecover.addrMap['ROOT']
 
@@ -566,8 +569,10 @@ class PyBtcWalletRecovery(object):
       
       #nothing to process anymore at this point. if the recovery mode is 4 (meta), just return the comments dict
       #now to build the specific log file
+      
+      #TODO: clean up kdf params in both wallets
                         
-      return self.BuildLogFile(newwalletPath)
+      return self.BuildLogFile(WalletPath)
 
    #############################################################################
    #GUI related members start here

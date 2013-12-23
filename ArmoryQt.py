@@ -899,7 +899,10 @@ class ArmoryMainWindow(QMainWindow):
       Setup Armory as the default application for handling bitcoin: links
       """
       LOGINFO('setupUriRegistration')
-
+      # Don't bother the user on the first load with it if verification is 
+      # needed.  They have enough to worry about with this weird new program.
+      isFirstLoad = self.getSettingOrSetDefault('First_Load', True)
+      
       if OS_LINUX:
          out,err = execAndWait('gconftool-2 --get /desktop/gnome/url-handlers/bitcoin/command')
          out2,err = execAndWait('xdg-mime query default x-scheme-handler/bitcoin')
@@ -939,15 +942,23 @@ class ArmoryMainWindow(QMainWindow):
          action = 'DoNothing'
          modulepathname = '"'
          if getattr(sys, 'frozen', False):
-             app_dir = os.path.dirname(sys.executable)
-             app_path = os.path.join(app_dir, sys.executable)
+            app_dir = os.path.dirname(sys.executable)
+            app_path = os.path.join(app_dir, sys.executable)
          elif __file__:
-             return #running from a .py script, not gonna register URI on Windows
+            return #running from a .py script, not gonna register URI on Windows
+         
+         #justDoIt = True
+         import ctypes
+         GetModuleFileNameW = ctypes.windll.kernel32.GetModuleFileNameW
+         GetModuleFileNameW.restype = ctypes.c_int
+         app_path = ctypes.create_string_buffer(1024)
+         rtlength = ctypes.c_int()
+         rtlength = GetModuleFileNameW(None, ctypes.byref(app_path), 1024)
+         passstr = str(app_path.raw)
 
-         modulepathname += app_path + '" %1'
-         LOGWARN("running from: %s, key: %s", app_path, modulepathname)
-
-
+         modulepathname += unicode(passstr[0:(rtlength*2)], encoding='utf16') + u'" %1'
+         #LOGWARN("running from: %s, key: %s", app_path, modulepathname)
+         
          rootKey = 'bitcoin\\shell\\open\\command'
          try:
             userKey = 'Software\\Classes\\' + rootKey
@@ -985,10 +996,8 @@ class ArmoryMainWindow(QMainWindow):
          elif dontAsk and dontAskDefault:
             LOGINFO('URL-register: user wants to do it by default')
             action = 'DoIt'
-         elif action=='AskUser' and not self.firstLoad and not dontAsk:
+         elif action=='AskUser' and not isFirstLoad and not dontAsk:
             # If another application has it, ask for permission to change it
-            # Don't bother the user on the first load with it if verification is
-            # needed.  They have enough to worry about with this weird new program...
             reply = MsgBoxWithDNAA(MSGBOX.Question, 'Default URL Handler', \
                'Armory is not set as your default application for handling '
                '"bitcoin:" links.  Would you like to use Armory as the '
@@ -1003,23 +1012,19 @@ class ArmoryMainWindow(QMainWindow):
                action = 'DoIt'
             else:
                LOGINFO('User requested not to use Armory as URI handler')
-               return
+               return 
 
          # Finally, do it if we're supposed to!
          LOGINFO('URL-register action: %s', action)
          if action=='DoIt':
-
+ 
             LOGINFO('Registering Armory  for current user')
-            baseDir = app_dir
+            baseDir = os.path.dirname(unicode(passstr[0:(rtlength*2)], encoding='utf16'))
             regKeys = []
             regKeys.append(['Software\\Classes\\bitcoin', '', 'URL:bitcoin Protocol'])
             regKeys.append(['Software\\Classes\\bitcoin', 'URL Protocol', ""])
             regKeys.append(['Software\\Classes\\bitcoin\\shell', '', None])
             regKeys.append(['Software\\Classes\\bitcoin\\shell\\open', '',  None])
-            regKeys.append(['Software\\Classes\\bitcoin\\shell\\open\\command',  '', \
-                           modulepathname])
-            regKeys.append(['Software\\Classes\\bitcoin\\DefaultIcon', '',  \
-                           '"%s\\armory48x48.ico"' % baseDir])
 
             for key,name,val in regKeys:
                dkey = '%s\\%s' % (key,name)
@@ -1028,7 +1033,20 @@ class ArmoryMainWindow(QMainWindow):
                SetValueEx(registryKey, name, 0, REG_SZ, val)
                CloseKey(registryKey)
 
-            LOGWARN('app dir: %s', app_dir)
+            regKeysU = []
+            regKeysU.append(['Software\\Classes\\bitcoin\\shell\\open\\command',  '', \
+                           modulepathname])
+            regKeysU.append(['Software\\Classes\\bitcoin\\DefaultIcon', '',  \
+                          '"%s\\armory48x48.ico"' % baseDir])
+            for key,name,val in regKeysU:
+               dkey = '%s\\%s' % (key,name)
+               LOGINFO('\tWriting key: [HKEY_CURRENT_USER\\] ' + dkey)
+               registryKey = CreateKey(HKEY_CURRENT_USER, key)
+               hKey = ctypes.c_int(registryKey.handle)
+               ctypes.windll.Advapi32.RegSetValueExW(hKey, None, 0, REG_SZ, val, (len(val)+1)*2)
+               #SetValueEx(registryKey, val, 0, REG_SZ, val)
+               CloseKey(registryKey)
+            #LOGWARN('app dir: %s', app_dir)
 
 
 

@@ -101,7 +101,46 @@ class ShouldNotGetHereError(Exception): pass
 class BadInputError(Exception): pass
 class TxdpError(Exception): pass
 
+# Get the host operating system
+opsys = platform.system()
+OS_WINDOWS = 'win32'  in opsys.lower() or 'windows' in opsys.lower()
+OS_LINUX   = 'nix'    in opsys.lower() or 'nux'     in opsys.lower()
+OS_MACOSX  = 'darwin' in opsys.lower() or 'osx'     in opsys.lower()
 
+#Windows only: grab cli args as utf-16, convert to utf-8
+if OS_WINDOWS:
+   def win32_unicode_argv():
+      """
+      Uses shell32.GetCommandLineArgvW to get sys.argv as a list of Unicode
+      strings.
+   
+      Versions 2.x of Python don't support Unicode in sys.argv on
+      Windows, with the underlying Windows API instead replacing multi-byte
+      characters with '?'.
+      """
+   
+      from ctypes import POINTER, byref, cdll, c_int, windll
+      from ctypes.wintypes import LPCWSTR, LPWSTR
+   
+      GetCommandLineW = cdll.kernel32.GetCommandLineW
+      GetCommandLineW.argtypes = []
+      GetCommandLineW.restype = LPCWSTR
+   
+      CommandLineToArgvW = windll.shell32.CommandLineToArgvW
+      CommandLineToArgvW.argtypes = [LPCWSTR, POINTER(c_int)]
+      CommandLineToArgvW.restype = POINTER(LPWSTR)
+   
+      cmd = GetCommandLineW()
+      argc = c_int(0)
+      uargv = CommandLineToArgvW(cmd, byref(argc))
+      if argc.value > 0:
+         # Remove Python executable and commands if present
+         start = argc.value - len(uargv)
+         return [uargv[i].encode('utf8') for i in
+            xrange(start, argc.value)]
+   
+   sys.argv = win32_unicode_argv()
+   
 CLI_OPTIONS = None
 CLI_ARGS = None
 (CLI_OPTIONS, CLI_ARGS) = parser.parse_args()
@@ -113,11 +152,6 @@ USE_TESTNET = CLI_OPTIONS.testnet
 if CLI_OPTIONS.interport < 0:
    CLI_OPTIONS.interport = 8223 + (1 if USE_TESTNET else 0)
 
-# Get the host operating system
-opsys = platform.system()
-OS_WINDOWS = 'win32'  in opsys.lower() or 'windows' in opsys.lower()
-OS_LINUX   = 'nix'    in opsys.lower() or 'nux'     in opsys.lower()
-OS_MACOSX  = 'darwin' in opsys.lower() or 'osx'     in opsys.lower()
 
 # Figure out the default directories for Satoshi client, and BicoinArmory
 OS_NAME          = ''
@@ -990,7 +1024,9 @@ def toUnicode(theStr, theEncoding=DEFAULT_ENCODING):
 
 
 def toPreferred(theStr):
-   return toUnicode(theStr).encode(locale.getpreferredencoding())
+   if OS_WINDOWS: return theStr.encode('utf8')
+   else: return toUnicode(theStr).encode(locale.getpreferredencoding())
+
 
 
 def lenBytes(theStr, theEncoding=DEFAULT_ENCODING):
