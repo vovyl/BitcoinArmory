@@ -577,6 +577,21 @@ class PyBtcWalletRecovery(object):
    #############################################################################
    #GUI related members start here
    #############################################################################
+   #############################################################################
+   def UIRecoverWallet(self):
+      """
+      Prompts the user with a window asking for wallet path and recovery mode.
+      Proceeds to Recover the wallet. Prompt for password if the wallet is locked
+      """
+
+      dlg = DlgHelpRecoverWallet()
+      if dlg.exec_():
+         path = str(dlg.edtWalletPath.text())
+         LOGWARN(path)
+      else:
+         return False
+   
+   #############################################################################   
    def BadPath(self, WalletPath):
       dlg = DlgBadPath(WalletPath)
 
@@ -592,8 +607,84 @@ class PyBtcWalletRecovery(object):
          #at this point wallet should have the proper derivated key in kdf
          return
       else: return
+      
+################################################################################
+class DlgHelpRecoverWallet(ArmoryDialog):
+   def __init__(self, parent=None, main=None):
+      super(DlgHelpRecoverWallet, self).__init__(parent)
 
-#############################################################################
+      self.edtWalletPath = QLineEdit()
+      self.btnWalletPath = createDirectorySelectButton(self, self.edtWalletPath)
+
+      lblDesc = QRichLabel('<b>Wallet Recovery Tool:</b><br>'
+                           'This tools attempts to recover data from damaged wallets.<br>'
+                           'Point to your wallet path and pick a recovery mode according to it\'s damage level'
+                           )
+      lblDesc.setScaledContents(True)
+
+      lblWalletPath = QRichLabel('Wallet Path:')
+
+
+      layoutMgmt = QGridLayout()
+      layoutMgmt.addWidget(lblDesc, 0, 0, 1, 3)
+      layoutMgmt.addWidget(lblWalletPath, 1, 0)
+      layoutMgmt.addWidget(self.edtWalletPath, 1, 1)
+      layoutMgmt.addWidget(self.btnWalletPath, 1, 2)
+
+      self.rdbtnStripped = QRadioButton()
+      self.rdbtnStripped.setChecked(True)
+      self.rdbtnStripped.setBaseSize(10, 10)
+      lblStripped = QRichLabel('<b>Stripped Recovery</b><br>'
+                               'Only attempts to recover the wallet\'s rootkey and chaincode')
+
+      self.rdbtnBare = QRadioButton()
+      lblBare = QRichLabel('<b>Bare Recovery</b><br>'
+                           'Attempts to recover all private key related data')
+
+      self.rdbtnFull = QRadioButton()
+      lblFull = QRichLabel('<b>Full Recovery</b><br>'
+                           'Attempts to recover as much data as possible')
+
+      layoutMgmt.addWidget(self.rdbtnStripped, 3, 0)
+      layoutMgmt.addWidget(lblStripped, 3, 1)
+      layoutMgmt.addWidget(self.rdbtnBare, 4, 0)
+      layoutMgmt.addWidget(lblBare, 4, 1)
+      layoutMgmt.addWidget(self.rdbtnFull, 5, 0)
+      layoutMgmt.addWidget(lblFull, 5, 1)
+
+      self.btnRecover = QPushButton('Recover')
+      self.btnCancel  = QPushButton('Cancel')
+
+      layoutMgmt.addWidget(self.btnRecover, 6, 1)
+      layoutMgmt.addWidget(self.btnCancel , 6, 2)
+
+
+      self.setLayout(layoutMgmt)
+      self.setWindowTitle('Wallet Recovery Tool')
+      self.setMinimumWidth(450)
+
+################################################################################
+class DlgBadPath(ArmoryDialog):
+   def __init__(self, WalletPath, parent=None, main=None):
+      super(DlgSettings, self).__init__(parent, main)
+      
+      lblDesc = QRichLabel('<b>Invalid Path</b><br>'
+                           'The path you have provided doesn\'t point to an existing file,<br>' 
+                           'or the file is not a valid Armory Wallet<br>'
+                           'path: %s' % (WalletPath))  
+      
+      self.btnOk = QPushButton("Ok")
+      self.connect(self.btnOk, SIGNAL('clicked()'), self.accept)
+      
+      layoutMgmt = QGridLayout()
+      layoutMgmt.addWidget(lblDesc, 0, 0, 1, 2)
+      layoutMgmt.addWidget(self.btnOk, 1, 0)
+                      
+      self.setLayout(layoutMgmt)
+      self.setWindowTitle('Invalid Path')              
+
+#################################################################################
+
 
 """
 TODO: setup an array of tests:

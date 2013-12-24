@@ -135,7 +135,7 @@ if OS_WINDOWS:
       uargv = CommandLineToArgvW(cmd, byref(argc))
       if argc.value > 0:
          # Remove Python executable and commands if present
-         start = argc.value - len(uargv)
+         start = argc.value - len(sys.argv)
          return [uargv[i].encode('utf8') for i in
             xrange(start, argc.value)]
    
