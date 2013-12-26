@@ -150,6 +150,16 @@ class PyBtcWalletRecovery(object):
    
    #############################################################################
    def RecoverWallet(self, WalletPath, Passphrase=None, Mode='Bare', GUI=False):
+      if GUI == True:
+         self.ProgressRdy = 0
+         self.ProcessWallet(WalletPath, Passphrase, Mode, GUI, async = True)
+         self.UIProgress()
+      else:
+         self.ProcessWallet(WalletPath, Passphrase, Mode, GUI)
+      
+   #############################################################################
+   @AllowAsync
+   def ProcessWallet(self, WalletPath, Passphrase=None, Mode='Bare', GUI=False):
       """
       Modes:
          1) Stripped: Only recover the root key and chaincode (it all sits in the header). As fail safe as it gets.
@@ -166,6 +176,9 @@ class PyBtcWalletRecovery(object):
          
          in meta mode, a list is returned holding all comments and labels in the wallet
       """
+      
+      while self.ProgressRdy == 0:
+         time.sleep(1)
 
       rmode = 2
       self.smode = 'bare'
@@ -314,6 +327,9 @@ class PyBtcWalletRecovery(object):
       LOGWARN('Now parsing')
       while wltdata.getRemainingSize()>0:
          byteLocation = wltdata.getPosition()
+         
+         if GUI: self.ProgDlg.UpdateText('<b>Parsing file</b><br>'
+                                         'At file offset: %d/%d kB' % (byteLocation, self.fileSize))
 
          try:
             dtype, hashVal, rawData = toRecover.unpackNextEntry(wltdata)
@@ -383,6 +399,9 @@ class PyBtcWalletRecovery(object):
          newAddr = entrylist[0]
          rawData = entrylist[4]
          byteLocation = entrylist[3]
+         
+         if GUI: self.ProgDlg.UpdateText('<b>Processing Address Entries</b><br>'
+                                         'At chainIndex: %d/%d' % (newAddr.chainIndex, self.naddress))
          
          # Fix byte errors in the address data         
          fixedAddrData = newAddr.serialize()
@@ -598,6 +617,9 @@ class PyBtcWalletRecovery(object):
                entrylist = list(importedDict[i])
                newAddr = entrylist[0]            
                RecoveredWallet.walletFileSafeUpdate([[WLT_UPDATE_ADD, WLT_DATATYPE_KEYDATA, newAddr.addrStr20, newAddr]])
+            
+            toRecover.kdfKey.destroy()   
+            RecoveredWallet.kdfKey.destroy()
          
             #save comments
             if rmode == 3:
@@ -611,7 +633,9 @@ class PyBtcWalletRecovery(object):
       #now to build the specific log file
       
       #TODO: clean up kdf params in both wallets
-                        
+      
+      if GUI: self.ProgDlg.Kill()
+      
       return self.BuildLogFile(WalletPath)
 
    #############################################################################
@@ -651,6 +675,15 @@ class PyBtcWalletRecovery(object):
 
       if dlg.exec_():
          #at this point wallet should have the proper derivated key in kdf
+         return
+      else: return
+      
+   #############################################################################
+   def UIProgress(self):
+      self.ProgDlg = DlgProgress()
+      self.ProgressRdy = 1
+      
+      if self.ProgDlg.exec_():
          return
       else: return
       
@@ -735,8 +768,31 @@ class DlgError(ArmoryDialog):
       self.setWindowTitle('Invalid Path')              
 
 #################################################################################
+class DlgProgress(ArmoryDialog):
+   def __init__(self, parent=None, main=None):
+      super(DlgProgress, self).__init__(parent, main)
+      
+      self.connect(self, SIGNAL('Update'), self.SetText)
+      
+      self.lblDesc = QLabel('')
+      
+      layoutMgmt = QGridLayout()
+      layoutMgmt.addWidget(self.lblDesc, 0, 0, 1, 3)
+                      
+      self.setLayout(layoutMgmt)
+      self.setWindowTitle('Progress')
+      
+   def SetText(self):
+      self.lblDesc.setText(self.text)
+      
+   def UpdateText(self, text):
+      self.text = text
+      self.emit(SIGNAL('Update'))
+      
 
-
+   def Kill(self):
+      self.done(0)      
+      
 """
 TODO: setup an array of tests:
 1) Gaps in chained address entries
