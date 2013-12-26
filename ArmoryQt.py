@@ -587,12 +587,15 @@ class ArmoryMainWindow(QMainWindow):
       actCreateNew    = self.createAction('&Create New Wallet',        self.createNewWallet)
       actImportWlt    = self.createAction('&Import or Restore Wallet', self.execImportWallet)
       actAddressBook  = self.createAction('View &Address Book',        self.execAddressBook)
+      
+      actRecoverWlt   = self.createAction('Recover Damaged Wallet',    self.RecoverWallet)
       #actRescanOnly   = self.createAction('Rescan Blockchain', self.forceRescanDB)
       #actRebuildAll   = self.createAction('Rescan with Database Rebuild', self.forceRebuildAndRescan)
 
       self.menusList[MENUS.Wallets].addAction(actCreateNew)
       self.menusList[MENUS.Wallets].addAction(actImportWlt)
       self.menusList[MENUS.Wallets].addSeparator()
+      self.menusList[MENUS.Wallets].addAction(actRecoverWlt)
       #self.menusList[MENUS.Wallets].addAction(actRescanOnly)
       #self.menusList[MENUS.Wallets].addAction(actRebuildAll)
 
@@ -2400,7 +2403,11 @@ class ArmoryMainWindow(QMainWindow):
          OpenPaperBackupWindow('Single', self, self, newWallet, \
             tr("Create Paper Backup"))
 
-
+   #############################################################################
+   def RecoverWallet(self):
+      from armoryengine.PyBtcWalletRecovery import PyBtcWalletRecovery
+      PyBtcWalletRecovery().UIRecoverWallet()
+      
 
    #############################################################################
    def createSweepAddrTx(self, a160ToSweepList, sweepTo160, forceZeroFee=False):
