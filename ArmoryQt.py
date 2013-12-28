@@ -2406,7 +2406,7 @@ class ArmoryMainWindow(QMainWindow):
    #############################################################################
    def RecoverWallet(self):
       from armoryengine.PyBtcWalletRecovery import PyBtcWalletRecovery
-      PyBtcWalletRecovery().UIRecoverWallet()
+      PyBtcWalletRecovery().UIRecoverWallet(self)
       
 
    #############################################################################

@@ -38,11 +38,12 @@ CLICKED = 'clicked()'
 ################################################################################
 class DlgUnlockWallet(ArmoryDialog):
    def __init__(self, wlt, parent=None, main=None, unlockMsg='Unlock Wallet', \
-                           returnResult=False):
+                           returnResult=False, returnPassphrase=False):
       super(DlgUnlockWallet, self).__init__(parent, main)
 
       self.wlt = wlt
       self.returnResult = returnResult
+      self.returnPassphrase = returnPassphrase
 
       ##### Upper layout
       lblDescr = QLabel("Enter your passphrase to unlock this wallet")
@@ -294,9 +295,13 @@ class DlgUnlockWallet(ArmoryDialog):
 
       try:
          self.wlt.unlock(securePassphrase=self.securePassphrase)
-         self.securePassphrase.destroy()
-         self.edtPasswd.setText('')
+     
+         if self.returnPassphrase == False: self.edtPasswd.setText('') 
+         else: self.wlt.lock() #if we are trying to recover the plain passphrase, make sure the wallet is locked
+         
+         self.securePassphrase.destroy()             
          self.accept()
+         
       except PassphraseError:
          QMessageBox.critical(self, 'Invalid Passphrase', \
            'That passphrase is not correct!', QMessageBox.Ok)

@@ -11,36 +11,46 @@ class PyBtcWalletRecovery(object):
 
    """
 
-#############################################################################
-   def BuildLogFile(self, WalletPath, errorCode=0):
+   #############################################################################
+   def BuildLogFile(self, errorCode=0):
       """
       The recovery function has ended and called this. Review the analyzed data, build a log and return negative values if the recovery couldn't complete
       
       """
-
-      newWalletPath = WalletPath + ".log"
-      basename = os.path.basename(WalletPath)
+      
+      if self.GUI:
+         self.UIreport = self.UIreport + '<b>- Building log file...</b><br>'
+         self.ProgDlg.UpdateText(self.UIreport)
+         
+      if self.newwalletPath != None:   
+         self.LogPath = self.newwalletPath + ".log"
+      else: 
+         self.LogPath = self.WalletPath + ".log"
+      basename = os.path.basename(self.LogPath)
             
-      self.logfile = open(newWalletPath, 'ab')
+      self.logfile = open(self.LogPath, 'ab')
       self.logfile.write('Recovering wallet %s on %s: \r\n' % (basename, time.ctime()))
       self.logfile.write('Using %s recovery mode\r\n' % (self.smode))
       
-      if errorCode == -1:
-         self.logfile.write('ERROR: no such file at given path\r\n')
-         self.EndLog()
-         return errorCode
-      elif errorCode == -2:
-         self.logfile.write('ERROR: failed to pass consistency check\r\n')
-         self.EndLog()
-         return errorCode
-      elif errorCode == -3:
-         self.logfile.write('ERROR: failed to unpack wallet header\r\n')
-         self.EndLog()
-         return errorCode
-      elif errorCode == -4:
-         self.logfile.write('ERROR: invalid or missing passphrase for encrypted wallet\r\n')
-         self.EndLog()
-         return errorCode      
+      if errorCode != 0:
+         if errorCode == -1:
+            errorstr = 'ERROR: Invalid path, or file is not a valid Armory wallet\r\n'
+         elif errorCode == -2:
+            errorstr = 'ERROR: file I/O failure. Do you have proper credentials?\r\n'
+         elif errorCode == -3:
+            errorstr = 'ERROR: This wallet file is for another network/blockchain\r\n'
+         elif errorCode == -4:
+            errorstr = 'ERROR: invalid or missing passphrase for encrypted wallet\r\n'
+         elif errorCode == -10:
+            errorstr = 'ERROR: no kdf parameters available\r\n'
+         elif errorCode == -12:
+            errorstr = 'ERROR: failed to unlock root key\r\n'
+         
+         self.logfile.write('   %s' % (errorstr))
+         if self.GUI:
+            self.UIreport = self.UIreport + errorstr
+            self.ProgDlg.UpdateText(self.UIreport)            
+         return self.EndLog(errorCode)      
            
       if self.WO == 1:
          self.logfile.write('Wallet is Watch Only\r\n')
@@ -50,6 +60,10 @@ class PyBtcWalletRecovery(object):
             self.logfile.write('and doesn\'t use encryption\r\n')
          else:
             self.logfile.write('and uses encryption')
+            
+      if self.smode == 'stripped' and self.WO == 0:
+         self.logfile.write('   Recovered root key and chaincode, stripped recovery done.')
+         return self.EndLog(errorCode)
             
       self.logfile.write('The wallet file is %d  bytes, of which %d bytes were readable\r\n' % (self.fileSize, self.dataLastOffset))
       self.logfile.write('%d chain addresses, %d imported keys and %d comments were found\r\n' % (self.naddress, self.nImports, self.ncomments))
@@ -143,10 +157,28 @@ class PyBtcWalletRecovery(object):
       self.EndLog()
       return 0 
    
-   def EndLog(self):
-      
-      self.logfile.write('Recovery done\r\n\r\n\r\n')
+   #############################################################################
+   def EndLog(self, errorcode=0):
+      if errorcode < 0:
+         self.logfile.write('Recovery failed: error code %d\r\n\r\n\r\n' % (errorcode))
+         
+         if self.GUI:
+            self.UIreport = self.UIreport + '<b>- Recovery failed: error code %d</b><br>' % (errorcode)
+            self.ProgDlg.UpdateText(self.UIreport)
+      else:
+         self.logfile.write('Recovery done\r\n\r\n\r\n')
+         
+         if self.GUI:
+            self.UIreport = self.UIreport + '<b>- Recovery done</b><br>'
+            self.UIreport = self.UIreport + '<br>Recovered wallet available at:<br>   %s<br>' % (self.newwalletPath)
+            self.ProgDlg.UpdateText(self.UIreport)
+         
+      if self.GUI:
+         self.UIreport = self.UIreport + '<br>Log file available at:<br>   %s<br>' % (self.logfile)
+         self.ProgDlg.UpdateText(self.UIreport, True)
       self.logfile.close()
+      
+      return errorcode
    
    #############################################################################
    def RecoverWallet(self, WalletPath, Passphrase=None, Mode='Bare', GUI=False):
@@ -171,14 +203,25 @@ class PyBtcWalletRecovery(object):
          
          4) Meta: Get all labels and comment entries from the wallet, return as list
          
+         5) Check: checks wallet for consistency. Does not yield a recovered file, does not enforce unlocking encrypted wallets.
+         
          returned values:
          -1: invalid path or file isn't a wallet
          
          in meta mode, a list is returned holding all comments and labels in the wallet
       """
       
-      while self.ProgressRdy == 0:
-         time.sleep(1)
+      self.WalletPath = WalletPath
+      self.newwalletPath = None
+      
+      #wait for the progress window to be created
+      while self.ProgressRdy == 0: 
+         time.sleep(0.01)
+      
+      self.GUI = GUI
+         
+      self.UIreport = '<b>Recovering wallet:</b> %s<br>' % (os.path.basename(WalletPath))
+      self.ProgDlg.UpdateText(self.UIreport)
 
       rmode = 2
       self.smode = 'bare'
@@ -191,20 +234,13 @@ class PyBtcWalletRecovery(object):
       elif Mode == 'Meta' or Mode == 4: 
          rmode = 4
          self.smode = 'meta'
+      elif Mode == 'Check' or Mode == 5:
+         rmode = 5
+         self.smode = 'consistency check'
 
       self.fileSize=0
-      if not os.path.exists(WalletPath):
-         if GUI:
-            self.UIError('<b>Invalid Path</b><br>'
-                         'The path you have provided doesn\'t point to an existing file,<br>' 
-                         'or the file is not a valid Armory wallet<br>'
-                         'path: %s' % (WalletPath))  
-      
-            return -1
-         else:
-            return -1
-      else: 
-         self.fileSize = os.path.getsize(WalletPath)
+      if not os.path.exists(WalletPath): return self.BuildLogFile(-1)
+      else: self.fileSize = os.path.getsize(WalletPath)
 
       toRecover = PyBtcWallet()
       toRecover.walletPath = WalletPath
@@ -212,10 +248,8 @@ class PyBtcWalletRecovery(object):
       #consistency check
       try:
          toRecover.doWalletFileConsistencyCheck()
-      except KeyDataError, errmsg:
-         return self.BuildLogFile(WalletPath, -2)
-
-   #TODO: stronger checks on the path fed
+      except: #I expect 99% of errors raised here would be by the os package failing on I/O operations, mainly for lack of credentials. 
+         return self.BuildLogFile(-2)
 
       #fetch wallet content
       wltfile = open(WalletPath, 'rb')
@@ -225,85 +259,92 @@ class PyBtcWalletRecovery(object):
       #unpack header
       try:
          returned = toRecover.unpackHeader(wltdata)
-      except:
-         LOGERROR('Invalid wallet file, halting recovery!')
-         if GUI:
-            self.UIError('<b>Invalid Path</b><br>'
-                         'The path you have provided doesn\'t point to an existing file,<br>' 
-                         'or the file is not a valid Armory Wallet<br>'
-                         'path: %s' % (WalletPath))  
-         return -1
+      except: return self.BuildLogFile(-1) #Raises here come from invalid header parsing, meaning the file isn't an Armory wallet to begin with, or the header is fubar
 
-      if returned < 0:
-         if GUI:
-            self.UIError('<b>Wrong chain/network</b><br>'
-                         'The wallet you have provided is for another chain or network: %s<br>' % (BLOCKCHAINS[toRecover.magicBytes])) 
-                         
-         return self.BuildLogFile(WalletPath, -3)
+      if returned < 0: return self.BuildLogFile(WalletPath, -3)
          
-      
       self.useEnc=0
 
       #check for private keys (watch only?)
       if toRecover.watchingOnly is True:
-         LOGWARN('no private keys in this wallet, checking for chain consistency')
          self.WO = 1
       else:
          #check if wallet is encrypted
          self.WO = 0
-         if toRecover.isLocked==True and Passphrase==None and rmode < 4:
+         if toRecover.isLocked==True and Passphrase==None and rmode != 4:
             #locked wallet and no passphrase, prompt the user if we're using the gui           
             if GUI==True:
-               self.AskUnlock()
+               self.ProgDlg.AskUnlock(toRecover)
+               while self.ProgDlg.GotPassphrase == 0:
+                  time.sleep(0.01)
+                  
+               if self.ProgDlg.GotPassphrase == -1:
+                  if rmode==5: self.WO = 1
+                  else: return self.BuildLogFile(-4)
+               
+               Passphrase = self.ProgDlg.Passphrase
+               self.ProgDlg.Passphrase = None   
+               
             else:
-               LOGWARN('Locked wallet, no passphrase!')
-               return self.BuildLogFile(WalletPath, -4)
+               if rmode==5: self.WO = 1
+               else: return self.BuildLogFile(-4)
             
          newAddr = toRecover.addrMap['ROOT']
 
          #if the wallet uses encryption, unlock ROOT and verify it
-         if toRecover.isLocked:
+         SecurePassphrase = None
+         if toRecover.isLocked and self.WO==0:
             self.useEnc
-            LOGWARN('deriving passphrase')
             SecurePassphrase = SecureBinaryData(Passphrase)
-            if not toRecover.kdf:
-               raise EncryptionError, 'How do we have a locked wallet w/o KDF???'
+            Passphrase = None
+            if not toRecover.kdf: return self.BuildLogFile(-10)
+            
             secureKdfOutput = toRecover.kdf.DeriveKey(SecurePassphrase)
 
-            LOGWARN('checking passphrase against wallet')
-            if not toRecover.verifyEncryptionKey(secureKdfOutput):
-               raise PassphraseError, "Incorrect passphrase for wallet"
+            if not toRecover.verifyEncryptionKey(secureKdfOutput): return self.BuildLogFile(-4)
+            
+            #DlgUnlockWallet may have filled kdfKey. Since this code can be called with no UI and just the passphrase, gotta make sure this member is cleaned up before setting it
+            if isinstance(toRecover.kdfKey, SecureBinaryData): toRecover.kdfKey.destroy()
             toRecover.kdfKey = secureKdfOutput
 
-            LOGWARN('attempting to unlock root key')
             try:
                newAddr.unlock(toRecover.kdfKey)
             except:
-               LOGERROR('failed to unlock root key')
-               return -2
-
-            LOGWARN('root key unlocked successfully')
+               return self.BuildLogFile(-12)
          else:
             SecurePassphrase = None
-            LOGWARN('wallet is not encrypted')
+
 
          #create recovered wallet
-         if rmode != 4:
+         if rmode < 4:
             RecoveredWallet = PyBtcWallet()
-            newwalletPath = os.path.join(os.path.dirname(toRecover.walletPath), 'armory_%s_RECOVERED.wallet' % (toRecover.uniqueIDB58))
-            if os.path.exists(newwalletPath):
-               LOGERROR('recovery file already exist!')
-               return -3
+            self.newwalletPath = os.path.join(os.path.dirname(toRecover.walletPath), 'armory_%s_RECOVERED.wallet' % (toRecover.uniqueIDB58))
+            if os.path.exists(self.newwalletPath):
+               #TODO: prompt to overwrite
+               try:
+                  os.remove(self.newwalletPath)
+               except:
+                  return self.BuildLogFile(-2)
+               
    
-            LOGWARN('creating recovery from root key')
-            RecoveredWallet.createNewWallet(newWalletFilePath=newwalletPath, securePassphrase=SecurePassphrase, \
+            try:
+               RecoveredWallet.createNewWallet(newWalletFilePath=self.newwalletPath, securePassphrase=SecurePassphrase, \
                                             plainRootKey=newAddr.binPrivKey32_Plain, chaincode=newAddr.chaincode, \
                                             #not registering with the BDM, so no addresses are computed
                                             doRegisterWithBDM=False, \
                                             shortLabel=toRecover.labelName, longLabel=toRecover.labelDescr)
-            LOGWARN('recovery file created successfully')
-   
-            if rmode == 1: self.RecoveryDone() #stripped recovery, we are done
+            except:
+               return self.BuildLogFile(-11) #failed to create new file
+            
+            #all wallets have their kdfKey at this point, dont need the passphrase anymore
+            if SecurePassphrase is not None:
+               SecurePassphrase.destroy()
+               SecurePassphrase = None
+
+            if rmode == 1:
+               if isinstance(toRecover.kdfKey, SecureBinaryData): toRecover.kdfKey.destroy()
+               if isinstance(RecoveredWallet.kdfKey, SecureBinaryData): RecoveredWallet.kdfKey.destroy() 
+               return self.BuildLogFile() #stripped recovery, we are done
 
       
       
@@ -320,21 +361,24 @@ class PyBtcWalletRecovery(object):
       
       self.ncomments = 0
       commentDict = {} #holds all comments entries
-            
+      
+      UIupdate = ""
+
       #move on to wallet body
       toRecover.lastComputedChainIndex = -UINT32_MAX
       toRecover.lastComputedChainAddr160  = None
-      LOGWARN('Now parsing')
       while wltdata.getRemainingSize()>0:
          byteLocation = wltdata.getPosition()
          
-         if GUI: self.ProgDlg.UpdateText('<b>Parsing file</b><br>'
-                                         'At file offset: %d/%d kB' % (byteLocation, self.fileSize))
+         if GUI:
+            UIupdate =  '<b>- Parsing file:</b>   %d/%d kB<br>' % (byteLocation, self.fileSize)
+            if self.ProgDlg.UpdateText(self.UIreport + UIupdate) == 0:
+               return 0
 
          try:
             dtype, hashVal, rawData = toRecover.unpackNextEntry(wltdata)
          except:
-            #error in the binary file content. Try to open the next entry by forwarding by possible entry sizes
+            #TODO: error in the binary file content. Try to open the next entry by forwarding by possible entry sizes
             LOGERROR('Unpack error')
             break
 
@@ -367,9 +411,11 @@ class PyBtcWalletRecovery(object):
             pass
          else:
             LOGERROR('invalid dtype: %d' % (dtype))
-            #try same trick as to recover from unpack errors
+            #TODO: try same trick as to recover from unpack errors
             
       self.dataLastOffset = wltdata.getPosition()
+      UIupdate = '<b>- Parsing file:</b>   %d/%d kB<br>' % (self.dataLastOffset, self.fileSize)
+      self.UIreport = self.UIreport + UIupdate
 
       #TODO: verify chainIndex 0 was derived from the root key
 
@@ -400,13 +446,14 @@ class PyBtcWalletRecovery(object):
          rawData = entrylist[4]
          byteLocation = entrylist[3]
          
-         if GUI: self.ProgDlg.UpdateText('<b>Processing Address Entries</b><br>'
-                                         'At chainIndex: %d/%d' % (newAddr.chainIndex, self.naddress))
+         if GUI:
+            UIupdate = '<b>- Processing address entries:</b>   %d/%d<br>' % (newAddr.chainIndex +1, self.naddress)
+            if self.ProgDlg.UpdateText(self.UIreport + UIupdate) == 0:
+               return 0
          
          # Fix byte errors in the address data         
          fixedAddrData = newAddr.serialize()
          if not rawData==fixedAddrData:
-            LOGWARN('found byte error in address data at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
             self.byteError([newAddr.chainIndex, byteLocation])
             newAddr = PyBtcAddress()
             newAddr.unserialize(fixedAddrData)
@@ -416,16 +463,12 @@ class PyBtcWalletRecovery(object):
          #check public key is a valid EC point
          if newAddr.hasPubKey():
             if not CryptoECDSA().VerifyPublicKeyValid(newAddr.binPublicKey65):
-               LOGERROR('invalid pub key at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
                self.invalidPubKey.append([newAddr.chainIndex, byteLocation])
-         else:
-            LOGWARN('missing pub key at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
-            self.missingPubKey.append([newAddr.chainIndex, byteLocation])
+         else: self.missingPubKey.append([newAddr.chainIndex, byteLocation])
          
          #check chaincode consistency
          newCC = newAddr.chaincode.toHexStr()
          if newCC != chaincode:
-            LOGWARN('chaincode corruption at index: %d in wallet %s' % (newAddr.chainIndex, WalletPath))
             self.chainCodeCorruption.append([newAddr.chainIndex, byteLocation])
             
          #check the address entry sequence
@@ -464,7 +507,6 @@ class PyBtcWalletRecovery(object):
                   cid = cid +1
                   
                if extended.toHexStr() != newAddr.binPublicKey65.toHexStr():
-                  LOGERROR('Broken public key chain at index %d in wallet %s' % (newAddr.chainIndex, WalletPath))
                   self.brokenPublicKeyChain.append([newAddr.chainIndex, byteLocation])
             
 
@@ -501,7 +543,6 @@ class PyBtcWalletRecovery(object):
                      if not newAddr.useEncryption:
                         #uncomputed private key in a non encrypted wallet? definitely not supposed to happen
                         keymismatch = 4
-                        LOGERROR('uncomputed private key in unencrypted wallet at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
                         self.misc.append('uncomputed private key in unencrypted wallet at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
                   
             #unlock if necessary      
@@ -516,10 +557,10 @@ class PyBtcWalletRecovery(object):
             #deal with mismatch scenarios   
             if keymismatch == 1:
                newAddr.binPublicKey65 = CryptoECDSA().ComputePublicKey(self.binPrivKey32_Plain)
-               LOGERROR('pub key doesnt match private key at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
                self.unmatchedPair.append(newAddr.chainIndex)
                keymismatch = 0
-               
+            
+            #TODO: needs better handling for keymismatch == 2   
             elif keymismatch == 2:
                LOGERROR('no private at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
                
@@ -531,16 +572,15 @@ class PyBtcWalletRecovery(object):
             #if we have clear possible mismatches (or there were none), proceed to consistency checks
             if keymismatch == 0:
                if not CryptoECDSA().CheckPubPrivKeyMatch(newAddr.binPrivKey32_Plain, newAddr.binPublicKey65):
-                  LOGERROR('pub key doesnt match private key at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
                   self.unmatchedPair.append([newAddr.chainIndex, byteLocation])
                  
                if newAddr.addrStr20 != entrylist[1]:
-                  LOGERROR('addr hash160 doesnt match the hashVal it was saved under at chainIndex %d in wallet %s' % (newAddr.chainIndex, WalletPath))
                   self.hashValMismatch.append([newAddr.chainIndex, byteLocation])
    
             if newAddr.useEncryption:
                newAddr.lock(toRecover.kdfKey)
    
+      if GUI and self.naddress > 0: self.UIreport = self.UIreport + UIupdate
 
       #imported addresses
       for i in range(0, self.nImports):
@@ -548,11 +588,15 @@ class PyBtcWalletRecovery(object):
          entrylist = list(importedDict[i])
          newAddr = entrylist[0]
          rawData = entrylist[3]
-         
+
+         if GUI:
+            UIupdate = '<b>- Processing imported address entries:</b>   %d/%d<br>' % (i +1, self.nImports)
+            if self.ProgDlg.UpdateText(self.UIreport + UIupdate) == 0:
+               return 0
+            
          # Fix byte errors in the address data         
          fixedAddrData = newAddr.serialize()
          if not rawData==fixedAddrData:
-            LOGWARN('found byte error in imported address %d in wallet %s' % (i, WalletPath))
             self.importedErr.append('found byte error in imported address %d at file offset %d' % (i, entrylist[2]))
             newAddr = PyBtcAddress()
             newAddr.unserialize(fixedAddrData)
@@ -562,15 +606,12 @@ class PyBtcWalletRecovery(object):
          #check public key is a valid EC point
          if newAddr.hasPubKey():
             CryptoECDSA().VerifyPublicKeyValid(newAddr.binPublicKey65)
-            LOGERROR('invalid pub key for imported address %d in wallet %s' % (i, WalletPath))
             self.importedErr.append('invalid pub key for imported address %d at file offset %d' % (i, entrylist[2]))
          else:
-            LOGWARN('missing pub key for imported address %d in wallet %s' % (i, WalletPath))
             self.importedErr.append('missing pub key for imported address %d at file offset %d' % (i, entrylist[2]))
          
          #if there a private key in the entry, check for consistency   
          if not newAddr.hasPrivKey():
-            LOGWARN('missing private key for imported address %d in wallet %s' % (i, WalletPath))
             self.importedErr.append('missing private key for imported address %d at file offset %d' % (i, entrylist[2]))
          else:
             keymismatch = 0
@@ -579,7 +620,6 @@ class PyBtcWalletRecovery(object):
                   newAddr.unlock(toRecover.kdfKey)
                except KeyDataError:
                   keymismatch = 1
-                  LOGWARN('pub key doesnt match private key for imported address %d in wallet %s' % (i, WalletPath))
                   self.importedErr.append('pub key doesnt match private key for imported address %d at file offset %d' % (i, entrylist[2]))
             
                   
@@ -587,7 +627,6 @@ class PyBtcWalletRecovery(object):
                #pubkey is present, check against priv key
                if not CryptoECDSA().CheckPubPrivKeyMatch(newAddr.binPrivKey32_Plain, newAddr.binPublicKey65):
                   keymismatch = 1
-                  LOGWARN('pub key doesnt match private key for imported address %d in wallet %s' % (i, WalletPath))
                   self.importedErr.append('pub key doesnt match private key for imported address %d at file offset %d' % (i, entrylist[2]))
             
             if keymismatch == 1:
@@ -597,58 +636,77 @@ class PyBtcWalletRecovery(object):
             #check hashVal   
             if newAddr.addrStr20 != entrylist[1]:
                newAddr.addrStr20 = newAddr.binPublicKey65.getHash160()
-               LOGWARN('hashVal doesnt match addrStr20 for imported address %d in wallet %s' % (i, WalletPath))
                self.importedErr.append('hashVal doesnt match addrStr20 for imported address %d at file offset %d' % (i, entrylist[2]))
                
             #if the entry was encrypted, lock it back with the new wallet kdfkey
             if newAddr.useEncryption:
                newAddr.lock(RecoveredWallet.kdfKey)
-               
+      
+      if GUI and self.nImports > 0: self.UIreport = self.UIreport + UIupdate     
       #TODO: check comments consistency
       
       if not toRecover.watchingOnly:
          if rmode < 4:
             #build address pool
-            RecoveredWallet.fillAddressPool(self.naddress, True, False)
+            for i in range(1, self.naddress):
+               if GUI:
+                  UIupdate = '<b>- Building address chain:</b>   %d/%d<br>' % (i+1, self.naddress)
+                  if self.ProgDlg.UpdateText(self.UIreport + UIupdate) == 0:
+                     return 0
+               
+               #TODO: check this builds the proper address chain, and saves encrypted private keys
+               RecoveredWallet.computeNextAddress(None, False, False)
+               
+            if GUI and self.naddress > 0: self.UIreport = self.UIreport + UIupdate
          
             #save imported addresses
             for i in range(0, self.nImports):
+               
+               if GUI:
+                  UIupdate = '<b>- Saving imported addresses:</b>   %d/%d<br>' % (i+1, self.nImports)
+                  if self.ProgDlg.UpdateText(self.UIreport + UIupdate) == 0:
+                     return 0
+                  
                entrylist = []
                entrylist = list(importedDict[i])
                newAddr = entrylist[0]            
                RecoveredWallet.walletFileSafeUpdate([[WLT_UPDATE_ADD, WLT_DATATYPE_KEYDATA, newAddr.addrStr20, newAddr]])
-            
-            toRecover.kdfKey.destroy()   
-            RecoveredWallet.kdfKey.destroy()
-         
+               
+            if GUI and self.nImports > 0: self.UIreport = self.UIreport + UIupdate
+                     
             #save comments
             if rmode == 3:
                for i in range(0, self.ncomments):
+                  
+                  if GUI:
+                     UIupdate = '<b>- Saving comment entries:</b>   %d/%d<br>' % (i+1, self.ncomments)
+                     if self.ProgDlg.UpdateText(self.UIreport + UIupdate) == 0:
+                        return 0
+                  
                   entrylist = []
                   entrylist = list(importedDict[i])    
                   RecoveredWallet.walletFileSafeUpdate([[WLT_UPDATE_ADD, entrylist[2], entrylist[1], entrylist[0]]]) 
+               
+               if GUI and self.ncomments > 0: self.UIreport = self.UIreport + UIupdate
       
       
-      #nothing to process anymore at this point. if the recovery mode is 4 (meta), just return the comments dict
-      #now to build the specific log file
-      
-      #TODO: clean up kdf params in both wallets
-      
-      if GUI: self.ProgDlg.Kill()
-      
+      #TODO: nothing to process anymore at this point. if the recovery mode is 4 (meta), just return the comments dict
+      if isinstance(toRecover.kdfKey, SecureBinaryData): toRecover.kdfKey.destroy()   
+      if isinstance(RecoveredWallet.kdfkey, SecureBinaryData): RecoveredWallet.kdfKey.destroy()
+
       return self.BuildLogFile(WalletPath)
 
    #############################################################################
    #GUI related members start here
    #############################################################################
    #############################################################################
-   def UIRecoverWallet(self):
+   def UIRecoverWallet(self, parentWnd=None):
       """
       Prompts the user with a window asking for wallet path and recovery mode.
       Proceeds to Recover the wallet. Prompt for password if the wallet is locked
       """
-
-      dlg = DlgHelpRecoverWallet()
+      self.parent = parentWnd
+      dlg = DlgWltRecoverWallet()
       if dlg.exec_():
          path = str(dlg.edtWalletPath.text())
          mode = 'Bare'
@@ -660,27 +718,10 @@ class PyBtcWalletRecovery(object):
          self.RecoverWallet(WalletPath=path, Mode=mode, GUI=True)
       else:
          return False
-   
-   #############################################################################   
-   def UIError(self, errBody):
-      dlg = DlgError(errBody)
-
-      if dlg.exec_():
-         return
-      else: return
-      
-   ##############
-   def AskUnlock(self, wll):
-      dlg = DlgUnlockWallet(wll)
-
-      if dlg.exec_():
-         #at this point wallet should have the proper derivated key in kdf
-         return
-      else: return
       
    #############################################################################
    def UIProgress(self):
-      self.ProgDlg = DlgProgress()
+      self.ProgDlg = DlgProgress(parent=self.parent)
       self.ProgressRdy = 1
       
       if self.ProgDlg.exec_():
@@ -688,9 +729,9 @@ class PyBtcWalletRecovery(object):
       else: return
       
 ################################################################################
-class DlgHelpRecoverWallet(ArmoryDialog):
+class DlgWltRecoverWallet(ArmoryDialog):
    def __init__(self, parent=None, main=None):
-      super(DlgHelpRecoverWallet, self).__init__(parent)
+      super(DlgWltRecoverWallet, self).__init__(parent, main)
 
       self.edtWalletPath = QLineEdit()
       self.btnWalletPath = QPushButton('')
@@ -750,49 +791,67 @@ class DlgHelpRecoverWallet(ArmoryDialog):
    def selectFile(self):
       self.edtWalletPath.setText(QFileDialog.getOpenFileName())
 
-################################################################################
-class DlgError(ArmoryDialog):
-   def __init__(self, errBody, parent=None, main=None):
-      super(DlgError, self).__init__(parent, main)
-      
-      lblDesc = QRichLabel(errBody)
-      
-      self.btnOk = QPushButton("Ok")
-      self.connect(self.btnOk, SIGNAL('clicked()'), self.accept)
-      
-      layoutMgmt = QGridLayout()
-      layoutMgmt.addWidget(lblDesc, 0, 0, 1, 2)
-      layoutMgmt.addWidget(self.btnOk, 1, 0)
-                      
-      self.setLayout(layoutMgmt)
-      self.setWindowTitle('Invalid Path')              
-
 #################################################################################
 class DlgProgress(ArmoryDialog):
    def __init__(self, parent=None, main=None):
       super(DlgProgress, self).__init__(parent, main)
       
-      self.connect(self, SIGNAL('Update'), self.SetText)
+      self.running = 1
+      self.Done = 0
+      
+      self.connect(self, SIGNAL('Update'), self.UpdateDlg)
+      self.connect(self, SIGNAL('PromptPassphrase'), self.PromptPassphrase)
       
       self.lblDesc = QLabel('')
+      self.btnStop = QPushButton('Stop Recovery')
+      self.connect(self.btnStop, SIGNAL('clicked()'), self.Kill)
+         
+      layoutMgmt = QVBoxLayout()
+      layoutMgmt.addWidget(self.lblDesc, 1)
+      layoutMgmt.addWidget(self.btnStop, 0)
       
-      layoutMgmt = QGridLayout()
-      layoutMgmt.addWidget(self.lblDesc, 0, 0, 1, 3)
-                      
-      self.setLayout(layoutMgmt)
+      self.setWindowFlags(Qt.CustomizeWindowHint)
+      
+      self.setLayout(layoutMgmt)   
       self.setWindowTitle('Progress')
+      self.show()
       
-   def SetText(self):
+   def UpdateDlg(self):
       self.lblDesc.setText(self.text)
+      if self.Done == 1:
+         self.btnStop.setText('Close')
       
-   def UpdateText(self, text):
-      self.text = text
+   def UpdateText(self, updatedText, endRecovery=False):
+      self.text = updatedText
+      self.Done = endRecovery
       self.emit(SIGNAL('Update'))
-      
+      return self.running
 
-   def Kill(self):
-      self.done(0)      
+   def AskUnlock(self, wll):
+      self.GotPassphrase = 0
+      self.wll = wll
+      self.emit(SIGNAL('PromptPassphrase'))
+   
+   def PromptPassphrase(self):
+      dlg = DlgUnlockWallet(self.wll, self, self.parent, "Enter Passphrase", returnPassphrase=True)
+
+      if dlg.exec_():
+         #grab plain passphrase
+         self.Passphrase = ''
+         if dlg.Accepted == 1: 
+            self.GotPassphrase = 1
+            self.Passphrase = str(dlg.edtPasswd.text())
+            dlg.edtPasswd.setText('')
+         else: self.GotPassphrase = -1
+         return
+      else:
+         self.GotPassphrase = -1 
+         return
       
+   def Kill(self):
+      self.running = 0           
+      self.done(0)
+ 
 """
 TODO: setup an array of tests:
 1) Gaps in chained address entries
