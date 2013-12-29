@@ -38,7 +38,9 @@ typedef __ssize_t ssize_t;
 #endif
 
 //straight forward ports
-#define fread_unlocked fread_unlockd
+#define fread_unlocked _fread_nolock
+#define fwrite_unlocked _fwrite_nolock
+#define fflush_unlocked _fflush_nolock
 #define fsync fsync_win32
 #define fdatasync fsync_win32
 #define close _close
