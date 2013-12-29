@@ -356,7 +356,7 @@ public:
    /////////////////////////////////////////////////////////////////////////////
    static uint64_t GetFileSize(string filename)
    {
-      ifstream is(OS_TranslatePath(filename.c_str()), ios::in|ios::binary);
+      ifstream is(filename.c_str(), ios::in|ios::binary);
       if(!is.is_open())
          return FILE_DOES_NOT_EXIST;
    
@@ -437,7 +437,7 @@ public:
                           uint32_t        nBytes,
                           BinaryData &    hashOutput)
    {
-      static CryptoPP::SHA256 sha256_;
+      CryptoPP::SHA256 sha256_;
       if(hashOutput.getSize() != 32)
          hashOutput.resize(32);
 
@@ -451,7 +451,7 @@ public:
                           uint32_t        nBytes,
                           BinaryData &    hashOutput)
    {
-      static CryptoPP::SHA256 sha256_;
+      CryptoPP::SHA256 sha256_;
 
       sha256_.CalculateDigest(hashOutput.getPtr(), strToHash, nBytes);
       sha256_.CalculateDigest(hashOutput.getPtr(), hashOutput.getPtr(), 32);
@@ -461,7 +461,7 @@ public:
    static BinaryData getHash256(uint8_t const * strToHash,
                                 uint32_t        nBytes)
    {
-      static CryptoPP::SHA256 sha256_;
+      CryptoPP::SHA256 sha256_;
 
       BinaryData hashOutput(32);
       sha256_.CalculateDigest(hashOutput.getPtr(), strToHash, nBytes);
@@ -505,9 +505,9 @@ public:
                           uint32_t        nBytes,
                           BinaryData &    hashOutput)
    {
-      static CryptoPP::SHA256 sha256_;
-      static CryptoPP::RIPEMD160 ripemd160_;
-      static BinaryData bd32(32);
+      CryptoPP::SHA256 sha256_;
+      CryptoPP::RIPEMD160 ripemd160_;
+      BinaryData bd32(32);
       if(hashOutput.getSize() != 20)
          hashOutput.resize(20);
 
@@ -521,9 +521,9 @@ public:
                           uint32_t        nBytes,
                           BinaryData &    hashOutput)
    {
-      static CryptoPP::SHA256 sha256_;
-      static CryptoPP::RIPEMD160 ripemd160_;
-      static BinaryData bd32(32);
+      CryptoPP::SHA256 sha256_;
+      CryptoPP::RIPEMD160 ripemd160_;
+      BinaryData bd32(32);
 
       sha256_.CalculateDigest(bd32.getPtr(), strToHash, nBytes);
       ripemd160_.CalculateDigest(hashOutput.getPtr(), bd32.getPtr(), 32);
@@ -575,8 +575,8 @@ public:
    //  I need a non-static, non-overloaded method to be able to use this in SWIG
    BinaryData ripemd160_SWIG(BinaryData const & strToHash)
    {
-      static CryptoPP::RIPEMD160 ripemd160_;
-      static BinaryData bd20(20);
+      CryptoPP::RIPEMD160 ripemd160_;
+      BinaryData bd20(20);
 
       ripemd160_.CalculateDigest(bd20.getPtr(), strToHash.getPtr(), strToHash.getSize());
       return bd20;
@@ -597,7 +597,7 @@ public:
       // and copy the result to the right size list afterwards
       uint32_t numTx = txhashlist.size();
       vector<BinaryData> merkleTree(3*numTx);
-      static CryptoPP::SHA256 sha256_;
+      CryptoPP::SHA256 sha256_;
       BinaryData hashInput(64);
       BinaryData hashOutput(32);
    
@@ -950,7 +950,7 @@ public:
    //        rule it out.
    static BinaryData getMultisigUniqueKey(BinaryDataRef script)
    {
-      static BinaryData nothing(0);
+      BinaryData nothing(0);
 
       if( script[-1] != 0xae )
          return nothing;
@@ -1410,7 +1410,7 @@ public:
       srcsz = min((uint32_t)srcsz, nbytes);
    
       BinaryData temp((size_t)srcsz);
-      ifstream is(OS_TranslatePath(src.c_str()), ios::in  | ios::binary);
+      ifstream is(src.c_str(), ios::in  | ios::binary);
       is.read((char*)temp.getPtr(), srcsz);
       is.close();
    
@@ -1429,7 +1429,7 @@ public:
          return false;
    
       BinaryData temp((size_t)srcsz);
-      ifstream is(OS_TranslatePath(src.c_str()), ios::in  | ios::binary);
+      ifstream is(src.c_str(), ios::in  | ios::binary);
       is.read((char*)temp.getPtr(), srcsz);
       is.close();
    
