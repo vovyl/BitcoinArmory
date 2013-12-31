@@ -12728,19 +12728,17 @@ class DlgRestoreSingle(ArmoryDialog):
          verifyRecoveryTestID(self, newWltID, self.testWltID)
          return
 
-            
-
-
+      dlgOwnWlt = None      
       if self.main.walletMap.has_key(newWltID):
-         QMessageBox.question(self, 'Duplicate Wallet!', \
-               'The data you entered is for a wallet with a ID: \n\n \t' + 
-               newWltID + '\n\nYou already own this wallet! \n  '
-               'Nothing to do...', QMessageBox.Ok)
-         self.reject()
-         return
+         dlgOwnWlt = DlgReplaceWallet(newWltID, self.parent, self.main)
          
-      
-      
+         if (dlgOwnWlt.exec_()):
+            if dlgOwnWlt.output == 0:
+               return
+         else:
+            self.reject()
+            return 
+         
       reply = QMessageBox.question(self, 'Verify Wallet ID', \
                'The data you entered corresponds to a wallet with a wallet ID: \n\n \t' + 
                newWltID + '\n\nDoes this ID match the "Wallet Unique ID" ' 
@@ -12761,12 +12759,23 @@ class DlgRestoreSingle(ArmoryDialog):
                'valid passphrase was supplied.  Aborting wallet recovery.', \
                QMessageBox.Ok)
             return
+      
+      shortl = ''
+      longl  = ''
+      nP=None
+      
+      if dlgOwnWlt is not None:
+         if dlgOwnWlt.Meta is not None:
+            shortl = ' - %s' % (dlgOwnWlt.Meta['shortLabel'])
+            longl  = dlgOwnWlt.Meta['longLabel']
+            nP = dlgOwnWlt.Meta['naddress']
 
       if passwd:
-          self.newWallet = PyBtcWallet().createNewWallet(\
+         self.newWallet = PyBtcWallet().createNewWallet(\
                                  plainRootKey=privKey, \
                                  chaincode=chain, \
-                                 shortLabel='Restored - %s' % newWltID, \
+                                 shortLabel='Restored - %s%s' % (newWltID, shortl), \
+                                 longLabel=longl, \
                                  withEncrypt=True, \
                                  securePassphrase=passwd, \
                                  kdfTargSec=0.25, \
@@ -12777,20 +12786,28 @@ class DlgRestoreSingle(ArmoryDialog):
          self.newWallet = PyBtcWallet().createNewWallet(\
                                  plainRootKey=privKey, \
                                  chaincode=chain, \
-                                 shortLabel='Restored - %s' % newWltID, \
+                                 shortLabel='Restored - %s%s' % (newWltID, shortl), \
+                                 longLabel=longl, \
                                  withEncrypt=False, \
                                  isActuallyNew=False, \
                                  doRegisterWithBDM=False)
 
       def fillAddrPoolAndAccept():
-         self.newWallet.fillAddressPool()
-         self.accept()
+         self.newWallet.fillAddressPool(numPool=nP)
 
       # Will pop up a little "please wait..." window while filling addr pool
       DlgExecLongProcess(fillAddrPoolAndAccept, "Recovering wallet...", self, self.main).exec_()
 
-
-
+      if dlgOwnWlt is not None:
+         if dlgOwnWlt.Meta is not None:
+            from armoryengine.PyBtcWallet import WLT_UPDATE_ADD
+            for n_cmt in range(0, dlgOwnWlt.Meta['ncomments']):
+               entrylist = []
+               entrylist = list(dlgOwnWlt.Meta[n_cmt])    
+               self.newWallet.walletFileSafeUpdate([[WLT_UPDATE_ADD, entrylist[2], entrylist[1], entrylist[0]]]) 
+               
+         self.newWallet = PyBtcWallet().readWalletFile(dlgOwnWlt.wltPath)
+      self.accept()
 
 ################################################################################
 class DlgRestoreFragged(ArmoryDialog):
@@ -13224,16 +13241,16 @@ class DlgRestoreFragged(ArmoryDialog):
          verifyRecoveryTestID(self, newWltID, self.testWltID)
          return
 
-
+      dlgOwnWlt = None      
       if self.main.walletMap.has_key(newWltID):
-         QMessageBox.question(self, 'Duplicate Wallet!', \
-               'The data you entered is for a wallet with a ID: \n\n \t' + 
-               newWltID + '\n\nYou already own this wallet! \n  '
-               'Nothing to do...', QMessageBox.Ok)
-         self.reject()
-         return
+         dlgOwnWlt = DlgReplaceWallet(newWltID, self.parent, self.main)
          
-      
+         if (dlgOwnWlt.exec_()):
+            if dlgOwnWlt.output == 0:
+               return
+         else:
+            self.reject()
+            return 
       
       reply = QMessageBox.question(self, tr('Verify Wallet ID'), tr("""
          The data you entered corresponds to a wallet with a wallet 
@@ -13251,17 +13268,28 @@ class DlgRestoreFragged(ArmoryDialog):
          if dlgPasswd.exec_():
             passwd = SecureBinaryData(str(dlgPasswd.edtPasswd1.text()))
          else:
-            QMessageBox.critical(self, tr('Cannot Encrypt'), tr("""
-               You requested your restored wallet be encrypted, but no 
-               valid passphrase was supplied.  Aborting wallet 
-               recovery."""), QMessageBox.Ok)
+            QMessageBox.critical(self, 'Cannot Encrypt', \
+               'You requested your restored wallet be encrypted, but no '
+               'valid passphrase was supplied.  Aborting wallet recovery.', \
+               QMessageBox.Ok)
             return
+      
+      shortl = ''
+      longl  = ''
+      nP=None
+      
+      if dlgOwnWlt is not None:
+         if dlgOwnWlt.Meta is not None:
+            shortl = ' - %s' % (dlgOwnWlt.Meta['shortLabel'])
+            longl  = dlgOwnWlt.Meta['longLabel']
+            nP = dlgOwnWlt.Meta['naddress']
 
       if passwd:
-          self.newWallet = PyBtcWallet().createNewWallet(\
+         self.newWallet = PyBtcWallet().createNewWallet(\
                                  plainRootKey=priv, \
                                  chaincode=chain, \
-                                 shortLabel='Restored - %s' % newWltID, \
+                                 shortLabel='Restored - %s%s' % (newWltID, shortl), \
+                                 longLabel=longl, \
                                  withEncrypt=True, \
                                  securePassphrase=passwd, \
                                  kdfTargSec=0.25, \
@@ -13272,20 +13300,28 @@ class DlgRestoreFragged(ArmoryDialog):
          self.newWallet = PyBtcWallet().createNewWallet(\
                                  plainRootKey=priv, \
                                  chaincode=chain, \
-                                 shortLabel='Restored - %s' % newWltID, \
+                                 shortLabel='Restored - %s%s' % (newWltID, shortl), \
+                                 longLabel=longl, \
                                  withEncrypt=False, \
                                  isActuallyNew=False, \
                                  doRegisterWithBDM=False)
 
       def fillAddrPoolAndAccept():
-         self.newWallet.fillAddressPool()
-         self.accept()
+         self.newWallet.fillAddressPool(numPool=nP)
 
       # Will pop up a little "please wait..." window while filling addr pool
-      DlgExecLongProcess(fillAddrPoolAndAccept, \
-                         tr("Recovering wallet..."), \
-                         self, self.main).exec_()
+      DlgExecLongProcess(fillAddrPoolAndAccept, "Recovering wallet...", self, self.main).exec_()
 
+      if dlgOwnWlt is not None:
+         if dlgOwnWlt.Meta is not None:
+            from armoryengine.PyBtcWallet import WLT_UPDATE_ADD
+            for n_cmt in range(0, dlgOwnWlt.Meta['ncomments']):
+               entrylist = []
+               entrylist = list(dlgOwnWlt.Meta[n_cmt])    
+               self.newWallet.walletFileSafeUpdate([[WLT_UPDATE_ADD, entrylist[2], entrylist[1], entrylist[0]]]) 
+               
+         self.newWallet = PyBtcWallet().readWalletFile(dlgOwnWlt.wltPath)
+      self.accept()
 
    #############################################################################
    def testFragSubsets(self, fragMtrx, M):
@@ -13659,12 +13695,84 @@ def finishPrintingBackup(parent, btype=None):
    if btype == None:
       QMessageBox.warning(parent, tr('Test Your Backup!'), tr("""
       """))
-            
-            
-         
+      
+################################################################################
+class DlgReplaceWallet(ArmoryDialog):
    
+   #############################################################################
+   def __init__(self, WalletID, parent, main):
+      super(DlgReplaceWallet, self).__init__(parent, main)
+      
+      lblDesc = QLabel('<b>You already own this wallet!</b><br>' 
+                       'You can choose to:<br>'
+                       '- Abort wallet restoration<br>'
+                       '- Replace the existing wallet<br>'
+                       '- Save meta data from the existing wallet and replace it<br>')
+      
+      self.WalletID = WalletID
+      self.main = main
+      self.Meta = None
+      self.output = 0
+      
+      self.wltPath = main.walletMap[WalletID].walletPath
+      
+      self.btnAbort = QPushButton('Abort')
+      self.btnReplace = QPushButton('Replace')
+      self.btnSaveMeta = QPushButton('Save Meta && Replace')
+      
+      self.connect(self.btnAbort, SIGNAL('clicked()'), self.reject)
+      self.connect(self.btnReplace, SIGNAL('clicked()'), self.Replace)
+      self.connect(self.btnSaveMeta, SIGNAL('clicked()'), self.SaveMeta)   
+            
+      layoutDlg = QGridLayout()
+      
+      layoutDlg.addWidget(lblDesc, 0, 0, 4, 4)
+      layoutDlg.addWidget(self.btnAbort, 4, 0, 1, 1)
+      layoutDlg.addWidget(self.btnReplace, 4, 1, 1, 1)
+      layoutDlg.addWidget(self.btnSaveMeta, 4, 2, 1, 2)
+         
+      self.setLayout(layoutDlg)   
+      self.setWindowTitle('Wallet already exists')
 
+   #########
+   def Replace(self):
+      self.main.removeWalletFromApplication(self.WalletID)
+      oldpath = os.path.join(os.path.dirname(self.wltPath), 'old_wallets')
+      try: os.mkdir(oldpath)
+      except OSError:
+         pass
+      except:
+         LOGERROR('Cannot create new fodler in dataDir! Missing credentials?')
+         self.reject()
+         return
+      
+      oldname = os.path.basename(self.wltPath)      
+      itr = ''
+      p=1
+      while p:
+         self.newname = os.path.join(oldpath, '%s_old%s.wallet' % (oldname[0:-7], itr))
+         if os.path.exists(self.newname):
+            itr = '_%d' % (p)
+            p = p +1
+         else: break
+            
+      os.rename(self.wltPath, self.newname)
+      
+      backup = '%s_backup.wallet' % (self.wltPath[0:-7])
+      if os.path.exists(backup):
+         os.remove(backup)
+      
+      self.output =1
+      self.accept()
+      
+   #########   
+   def SaveMeta(self):
+      from armoryengine.PyBtcWalletRecovery import PyBtcWalletRecovery
 
+      getMeta = PyBtcWalletRecovery()
+      self.Meta = getMeta.RecoverWallet(WalletPath=self.wltPath, Mode=4)
+      self.Replace()
+      
 
 
 

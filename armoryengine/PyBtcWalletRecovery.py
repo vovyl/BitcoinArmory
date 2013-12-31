@@ -196,10 +196,11 @@ class PyBtcWalletRecovery(object):
    def RecoverWallet(self, WalletPath, Passphrase=None, Mode='Bare', GUI=False):
       if GUI == True:
          self.ProgressRdy = 0
-         self.ProcessWallet(WalletPath, Passphrase, Mode, GUI, async = True)
+         rtv = self.ProcessWallet(WalletPath, Passphrase, Mode, GUI, async = True)
          self.UIProgress()
+         return rtv
       else:
-         self.ProcessWallet(WalletPath, Passphrase, Mode, GUI)
+         return self.ProcessWallet(WalletPath, Passphrase, Mode, GUI)
       
    #############################################################################
    @AllowAsync
@@ -220,21 +221,32 @@ class PyBtcWalletRecovery(object):
          returned values:
          -1: invalid path or file isn't a wallet
          
-         in meta mode, a list is returned holding all comments and labels in the wallet
+         in meta mode, a dict is returned holding all comments and labels in the wallet
       """
       
       RecoveredWallet = None
       self.WalletPath = WalletPath
       self.newwalletPath = None
+      self.WO = 0
+      self.GUI = GUI
+      self.UIreport = ''
+            
+      self.naddress = 0
+      addrDict = {} #holds address chain sequentially, ordered by chainIndex, as lists: [addrEntry, hashVal, naddress, byteLocation, rawData]
+      
+      self.nImports = 0
+      importedDict = {} #holds imported address, by order of apparition, as lists: [addrEntry, hashVal, byteLocation, rawData]
+      
+      self.ncomments = 0
+      commentDict = {} #holds all comments entries, as lists: [rawData, hashVal, dtype]
+      #in meta mode, the wallet's short and long labels are saved in entries shortLabel and longLabel, pointing to a single str object
       
       #wait for the progress window to be created
-      while self.ProgressRdy == 0: 
-         time.sleep(0.01)
-      
-      self.GUI = GUI
-         
-      self.UIreport = '<b>Recovering wallet:</b> %s<br>' % (os.path.basename(WalletPath))
-      self.ProgDlg.UpdateText(self.UIreport)
+      if GUI == True:
+         while self.ProgressRdy == 0: 
+            time.sleep(0.01)
+         self.UIreport = '<b>Recovering wallet:</b> %s<br>' % (os.path.basename(WalletPath))
+         self.ProgDlg.UpdateText(self.UIreport)      
 
       rmode = 2
       self.smode = 'bare'
@@ -247,6 +259,7 @@ class PyBtcWalletRecovery(object):
       elif Mode == 'Meta' or Mode == 4: 
          rmode = 4
          self.smode = 'meta'
+         self.WO = 1
       elif Mode == 'Check' or Mode == 5:
          rmode = 5
          self.smode = 'consistency check'
@@ -281,9 +294,9 @@ class PyBtcWalletRecovery(object):
       #check for private keys (watch only?)
       if toRecover.watchingOnly is True:
          self.WO = 1
-      else:
+         
+      if self.WO == 0:
          #check if wallet is encrypted
-         self.WO = 0
          if toRecover.isLocked==True and Passphrase==None and rmode != 4:
             #locked wallet and no passphrase, prompt the user if we're using the gui           
             if GUI==True:
@@ -314,7 +327,10 @@ class PyBtcWalletRecovery(object):
             
             secureKdfOutput = toRecover.kdf.DeriveKey(SecurePassphrase)
 
-            if not toRecover.verifyEncryptionKey(secureKdfOutput): return self.BuildLogFile(-4)
+            if not toRecover.verifyEncryptionKey(secureKdfOutput): 
+               SecurePassphrase.destroy()
+               secureKdfOutput.destroy()
+               return self.BuildLogFile(-4)
             
             #DlgUnlockWallet may have filled kdfKey. Since this code can be called with no UI and just the passphrase, gotta make sure this member is cleaned up before setting it
             if isinstance(toRecover.kdfKey, SecureBinaryData): toRecover.kdfKey.destroy()
@@ -326,8 +342,7 @@ class PyBtcWalletRecovery(object):
                return self.BuildLogFile(-12)
          else:
             SecurePassphrase = None
-
-
+            
          #create recovered wallet
          if rmode < 4:
             RecoveredWallet = PyBtcWallet()
@@ -335,8 +350,7 @@ class PyBtcWalletRecovery(object):
             if os.path.exists(self.newwalletPath):
                try: os.remove(self.newwalletPath)
                except: return self.BuildLogFile(-2)
-               
-   
+
             try:
                RecoveredWallet.createNewWallet(newWalletFilePath=self.newwalletPath, securePassphrase=SecurePassphrase, \
                                             plainRootKey=newAddr.binPrivKey32_Plain, chaincode=newAddr.chaincode, \
@@ -344,8 +358,11 @@ class PyBtcWalletRecovery(object):
                                             doRegisterWithBDM=False, \
                                             shortLabel=toRecover.labelName, longLabel=toRecover.labelDescr)
             except:
-               return self.BuildLogFile(-11) #failed to create new file
+               return self.BuildLogFile(-2) #failed to create new file
             
+            if SecurePassphrase is not None:
+               RecoveredWallet.kdfKey = RecoveredWallet.kdf.DeriveKey(SecurePassphrase)
+         
             #all wallets have their kdfKey at this point, dont need the passphrase anymore
             if SecurePassphrase is not None:
                SecurePassphrase.destroy()
@@ -356,21 +373,14 @@ class PyBtcWalletRecovery(object):
                if isinstance(RecoveredWallet.kdfKey, SecureBinaryData): RecoveredWallet.kdfKey.destroy() 
                return self.BuildLogFile() #stripped recovery, we are done
 
-      
+      if rmode == 4:
+         commentDict["shortLabel"] = toRecover.labelName
+         commentDict["longLabel"]  = toRecover.labelDescr      
       
       
       #address entries may not be saved sequentially. To check the address chain is valid, all addresses will be unserialized
       #and saved by chainIndex in addrDict. Then all addresses will be checked for consistency and proper chaining. Imported 
       #private keys and comments will be added at the tail of the file.
-      
-      self.naddress = 0
-      addrDict = {} #holds address chain sequentially, ordered by chainIndex
-      
-      self.nImports = 0
-      importedDict = {} #holds imported address, by order of apparition
-      
-      self.ncomments = 0
-      commentDict = {} #holds all comments entries
       
       UIupdate = ""
 
@@ -392,25 +402,27 @@ class PyBtcWalletRecovery(object):
             LOGERROR('Unpack error')
             break
 
-         if dtype==WLT_DATATYPE_KEYDATA and rmode != 4:
-            newAddr = PyBtcAddress()
-            newAddr.unserialize(rawData)
-            newAddr.walletByteLoc = byteLocation + 21
-
-            if newAddr.useEncryption:
-               newAddr.isLocked = True
-             
-            #save address entry count in the file, to check for entry sequence
-            if newAddr.chainIndex > -2 :
-               addrDict[newAddr.chainIndex] = [newAddr, hashVal, self.naddress, byteLocation, rawData]
-               self.naddress = self.naddress +1
-            else:
-               importedDict[self.nImports] = [newAddr, hashVal, byteLocation, rawData]
-               self.nImports = self.nImports +1
+         if dtype==WLT_DATATYPE_KEYDATA:
+            if rmode != 4:
+               newAddr = PyBtcAddress()
+               newAddr.unserialize(rawData)
+               newAddr.walletByteLoc = byteLocation + 21
+   
+               if newAddr.useEncryption:
+                  newAddr.isLocked = True
+                
+               #save address entry count in the file, to check for entry sequence
+               if newAddr.chainIndex > -2 :
+                  addrDict[newAddr.chainIndex] = [newAddr, hashVal, self.naddress, byteLocation, rawData]
+                  self.naddress = self.naddress +1
+               else:
+                  importedDict[self.nImports] = [newAddr, hashVal, byteLocation, rawData]
+                  self.nImports = self.nImports +1
+            else: self.naddress = self.naddress +1
                
 
          elif dtype in (WLT_DATATYPE_ADDRCOMMENT, WLT_DATATYPE_TXCOMMENT):
-            if rmode == 3: 
+            if rmode > 2: 
                commentDict[self.ncomments] = [rawData, hashVal, dtype]
                self.ncomments = self.ncomments +1
 
@@ -429,7 +441,16 @@ class PyBtcWalletRecovery(object):
 
       #TODO: verify chainIndex 0 was derived from the root key
 
-      currSequence = addrDict[0][2]
+      if rmode != 4: 
+         currSequence = addrDict[0][2]
+         chaincode = addrDict[0][0].chaincode.toHexStr()
+      else: 
+         currSequence = None
+         chaincode = None
+         commentDict['naddress'] = self.naddress
+         self.naddress = 0
+         commentDict['ncomments'] = self.ncomments
+         
       """
       Set of lists holding various errors at given indexes. Used at the end of the recovery process to compile a wallet specific log of encountered
       inconsistencies
@@ -446,7 +467,6 @@ class PyBtcWalletRecovery(object):
       self.misc = [] #miscellaneous errors
       self.importedErr = [] #all imported keys related errors
       
-      chaincode = addrDict[0][0].chaincode.toHexStr()
       
       #chained key pairs. for rmode is 4, no need to skip this part, naddress will be 0
       for i in range(0, self.naddress):      
@@ -652,7 +672,9 @@ class PyBtcWalletRecovery(object):
                
             #if the entry was encrypted, lock it back with the new wallet kdfkey
             if newAddr.useEncryption:
+               newAddr.keyChanged = 1
                newAddr.lock(RecoveredWallet.kdfKey)
+               abcer = 1
       
       if GUI and self.nImports > 0: self.UIreport = self.UIreport + UIupdate     
       #TODO: check comments consistency
@@ -706,7 +728,10 @@ class PyBtcWalletRecovery(object):
       if RecoveredWallet is not None: 
          if isinstance(RecoveredWallet.kdfKey, SecureBinaryData): RecoveredWallet.kdfKey.destroy()
 
-      return self.BuildLogFile(0)
+      if rmode != 4: return self.BuildLogFile(0)
+      else:
+          
+         return commentDict
 
    #############################################################################
    #GUI related members start here
