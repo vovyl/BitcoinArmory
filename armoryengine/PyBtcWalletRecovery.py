@@ -761,7 +761,7 @@ class PyBtcWalletRecovery(object):
       
    #############################################################################
    def UIProgress(self):
-      self.ProgDlg = DlgProgress(main=self.parent, parent=self.parent, Interrupt="Stop Recovery", Title="<b>Recovering Wallet</b>")
+      self.ProgDlg = DlgProgress(main=self.parent, parent=self.parent, Interrupt="Stop Recovery", Title="<b>Recovering Wallet</b>", TProgress="")
       self.ProgressRdy = 1
       
       self.ProgDlg.spawn_()

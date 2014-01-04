@@ -1588,8 +1588,12 @@ class PyBtcWallet(object):
          
          self.useEncryption = newUsesEncryption
          if newKdfKey:
-            if DlgPrg is not None: self.unlock(newKdfKey)
-            else: self.unlock_(newKdfKey)
+            if DlgPrg is not None:
+               self.lock() 
+               self.unlock(newKdfKey)
+            else:
+               self.lock_() 
+               self.unlock_(newKdfKey)
     
       finally:
          # Make sure we always destroy the temporary passphrase results
@@ -2647,12 +2651,6 @@ class PyBtcWallet(object):
       
       if self.isLocked == False:
          if self.useEncryption == False: return
-         else:
-            if tempKeyLifetime==0:
-               self.lockWalletAtTime = RightNow() + self.defaultKeyLifetime
-            else:
-               self.lockWalletAtTime = RightNow() + tempKeyLifetime
-         return
       
       if GUI == True:
          LOGDEBUG('Attempting to unlock wallet: %s', self.uniqueIDB58)
