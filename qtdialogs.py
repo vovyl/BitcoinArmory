@@ -13773,10 +13773,246 @@ class DlgReplaceWallet(ArmoryDialog):
       self.Meta = getMeta.RecoverWallet(WalletPath=self.wltPath, Mode=4)
       self.Replace()
       
+################################################################################
+class DlgWltRecoverWallet(ArmoryDialog):
+   def __init__(self, parent=None, main=None):
+      super(DlgWltRecoverWallet, self).__init__(parent, main)
+
+      self.edtWalletPath = QLineEdit()
+      self.btnWalletPath = QPushButton('')
+      ico = QIcon(QPixmap(':/folder24.png')) 
+      self.btnWalletPath.setIcon(ico)
+      self.connect(self.btnWalletPath, SIGNAL('clicked()'), self.selectFile)      
+
+      lblDesc = QRichLabel('<b>Wallet Recovery Tool:</b><br>'
+                           'This tools attempts to recover data from damaged wallets.<br>'
+                           'Point to your wallet path and pick a recovery mode according to it\'s damage level'
+                           )
+      lblDesc.setScaledContents(True)
+
+      lblWalletPath = QRichLabel('Wallet Path:')
 
 
+      layoutMgmt = QGridLayout()
+      
+      layout_wltH = QHBoxLayout()
+      layout_wltH.addWidget(lblWalletPath, 2)
+      layout_wltH.addWidget(self.edtWalletPath, 7)
+      layout_wltH.addWidget(self.btnWalletPath, 1)
+      
+      layoutMgmt.addWidget(lblDesc, 0, 0, 2, 4)
+      layoutMgmt.addLayout(layout_wltH, 2, 0, 2, 4)
 
+      self.rdbtnStripped = QRadioButton('')
+      self.rdbtnStripped.setChecked(True)
+      lblStripped = QLabel('<b>Stripped Recovery</b><br>Only attempts to recover the wallet\'s rootkey and chaincode')
+      layout_StrippedH = QHBoxLayout()
+      layout_StrippedH.addWidget(self.rdbtnStripped, 1)
+      layout_StrippedH.addWidget(lblStripped, 30)
+      
+      self.rdbtnBare = QRadioButton('')
+      lblBare = QLabel('<b>Bare Recovery</b><br>Attempts to recover all private key related data')
+      layout_BareH = QHBoxLayout()
+      layout_BareH.addWidget(self.rdbtnBare, 1)
+      layout_BareH.addWidget(lblBare, 30)
+      
+      self.rdbtnFull = QRadioButton('')
+      lblFull = QLabel('<b>Full Recovery</b><br>Attempts to recover as much data as possible')
+      layout_FullH = QHBoxLayout()
+      layout_FullH.addWidget(self.rdbtnFull, 1)
+      layout_FullH.addWidget(lblFull, 30)
+      
+      self.rdbtnCheck = QRadioButton('')
+      lblCheck = QLabel('<b>Consistency Check</b><br>Checks wallet consistency. Works will both full and watch only<br> wallets.'
+                         ' Unlocking of encrypted wallets is not mandatory')
+      layout_CheckH = QHBoxLayout()
+      layout_CheckH.addWidget(self.rdbtnCheck, 1)
+      layout_CheckH.addWidget(lblCheck, 10)      
+      
+      #layoutMgmt.addWidget(self.rdbtnStripped, 3, 0, 1, 1)
+      #layoutMgmt.addWidget(lblStrippedP, 3, 1, 1, 12)
+      #layoutMgmt.addWidget(lblStripped, 4, 1, 1, 12)
+      layoutMgmt.addLayout(layout_StrippedH, 4, 0, 2, 4)
+      layoutMgmt.addLayout(layout_BareH, 6, 0, 2, 4)
+      layoutMgmt.addLayout(layout_FullH, 8, 0, 2, 4)
+      layoutMgmt.addLayout(layout_CheckH, 10, 0, 3, 4)
 
+      self.btnRecover = QPushButton('Recover')
+      self.btnCancel  = QPushButton('Cancel')
+      layout_btnH = QHBoxLayout()
+      layout_btnH.addWidget(self.btnRecover, 1)
+      layout_btnH.addWidget(self.btnCancel, 1)
+      #layout_btnH.setAlignment(Qt.AlignHCenter)
+
+      layoutMgmt.addLayout(layout_btnH, 13, 1, 1, 2)
+
+      self.connect(self.btnRecover, SIGNAL('clicked()'), self.accept)
+      self.connect(self.btnCancel , SIGNAL('clicked()'), self.reject)
+      
+      self.setLayout(layoutMgmt)
+      self.setWindowTitle('Wallet Recovery Tool')
+      self.setMinimumWidth(450)
+      
+   def selectFile(self):
+      self.edtWalletPath.setText(QFileDialog.getOpenFileName())
+            
+#################################################################################
+"""
+Progress bar dialog. The dialog is guaranteed to be created from the main thread.
+
+The dialog is modal, meaning all other windows are barred from user interaction as long as this dialog is within its message loop
+The message loop is entered either through the usual exec_(), which will lock the caller thread, or spawn_(), which will lock the
+main thread and the caller thread.
+
+The dialog reject() signal is overloaded to render it useless. The dialog cannot be killed through the user interface. As such, it
+is the caller responsibility to call Kill() on the dialog once the process is over. Calling Kill() will also release the locked threads 
+
+To make a progress dialog that can be killed by the user (before the process is complete), pass a string to Interrupt. It will add a 
+button with that text that will kill the progress dialog on click. Since killing the dialog releases the threads it had previously locked, 
+you have to handle that scenario with the thread running the calculations yourself 
+(cf. PyBtcWalletRecovery for an implementation of that mechanic).
+
+Passing a string to Title will draw a title.
+Passing an integer to HBar will draw a progress bar with a Max value set to that integer. It can be updated through UpdateHBar(int) 
+Passing a string TProgress will draw a label with that string. It can be updated through UpdateText(str)
+"""
+class DlgProgress(ArmoryDialog):
+   def __init__(self, parent=None, main=None, Interrupt=None, HBar=None, Title=None, TProgress=None):
+      self.running = 1
+      self.Done = 0
+      self.status = 0
+      self.main = main
+      self.Interrupt = Interrupt
+      self.HBar = HBar
+      self.Title = Title 
+      self.TProgress = None
+      
+      self.btnStop = None
+      
+      from threading import RLock
+      self.thread_lock = RLock()
+      
+      if main is not None:
+         main.emit(SIGNAL('initTrigger'), self)
+         
+      from time import sleep
+      while self.status == 0:
+         sleep(0.01)
+      
+   def UpdateDlg(self, text=None, HBar=None, Title=None):
+      
+      if text is not None: self.lblDesc.setText(text)
+      if HBar is not None: self.hbarProgress.setValue(HBar)
+      
+      if self.Done == 1:
+         if self.btnStop is not None:
+            self.btnStop.setText('Close')
+         else: self.Kill()
+      
+   def UpdateText(self, updatedText, endProgress=False):
+      self.Done = endProgress
+      self.emit(SIGNAL('Update'), updatedText, None)
+      return self.running
+   
+   def UpdateHBar(self, value, endProgress=False):
+      self.Done = endProgress
+      self.emit(SIGNAL('Update'), None, value)
+      return self.running
+
+   def AskUnlock(self, wll):
+      self.GotPassphrase = 0
+      self.wll = wll
+      self.emit(SIGNAL('PromptPassphrase'))
+   
+   def PromptPassphrase(self):
+      dlg = DlgUnlockWallet(self.wll, self, self.parent, "Enter Passphrase", returnPassphrase=True)
+
+      if dlg.exec_():
+         #grab plain passphrase
+         self.Passphrase = ''
+         if dlg.Accepted == 1: 
+            self.GotPassphrase = 1
+            self.Passphrase = str(dlg.edtPasswd.text())
+            dlg.edtPasswd.setText('')
+         else: self.GotPassphrase = -1
+         return
+      else:
+         self.GotPassphrase = -1 
+         return
+      
+   def Kill(self):
+      self.emit(SIGNAL('Exit'))
+      
+   def Exit(self):
+      self.running = 0           
+      self.done(0)
+
+   def spawn_(self):
+      if self.main is not None:
+         self.status = 1
+         self.main.emit(SIGNAL('spawnTrigger'), self)
+      
+      from time import sleep
+      while self.status == 1:
+         sleep(0.01)
+
+      self.thread_lock.acquire()
+      self.thread_lock.release()
+      
+   def reject(self):
+      return
+      
+   def setup(self, parent=None):
+      super(DlgProgress, self).__init__(parent, self.main)
+      
+      css = """
+            QDialog{ border:1px solid rgb(0, 0, 0); }
+            QProgressBar{ text-align: center; }
+            """
+      self.setStyleSheet(css)
+           
+      self.connect(self, SIGNAL('Update'), self.UpdateDlg)
+      self.connect(self, SIGNAL('PromptPassphrase'), self.PromptPassphrase)
+      self.connect(self, SIGNAL('Exit'), self.Exit)
+
+      layoutMgmt = QVBoxLayout()
+      self.lblDesc = QLabel('')    
+                   
+      if self.Title is not None: 
+
+         self.lblTitle = QLabel(self.Title)
+         self.lblTitle.setAlignment(Qt.AlignCenter)         
+         layoutMgmt.addWidget(self.lblTitle)
+
+      
+      if self.HBar is not None:
+         self.hbarProgress = QProgressBar(self)
+         self.hbarProgress.setMaximum(self.HBar)
+         self.hbarProgress.setMinimum(0)
+         self.hbarProgress.setValue(0)
+         self.hbarProgress.setMinimumWidth(250)
+         layoutMgmt.addWidget(self.hbarProgress)
+      else:
+         layoutMgmt.addWidget(self.lblDesc)              
+      
+      if self.Interrupt is not None:
+         self.btnStop = QPushButton(self.Interrupt)
+         self.connect(self.btnStop, SIGNAL('clicked()'), self.Kill)
+      
+         layout_btnG = QGridLayout()
+         layout_btnG.setColumnStretch(0, 1)      
+         layout_btnG.setColumnStretch(4, 1)
+         layout_btnG.addWidget(self.btnStop, 0, 1, 1, 3)
+         layoutMgmt.addLayout(layout_btnG)
+      
+      self.minimize = None
+      self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
+      self.setModal(True)
+      
+      self.setLayout(layoutMgmt)   
+      #self.setWindowTitle('Progress')
+      #self.show()
+      self.hide()      
 
 
 

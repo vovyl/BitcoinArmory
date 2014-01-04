@@ -123,6 +123,9 @@ class ArmoryMainWindow(QMainWindow):
       self.initSyncCircBuff = []
       self.latestVer = {}
 
+      #Setup the signal to spawn progress dialogs from the main thread
+      self.connect(self, SIGNAL('initTrigger') , self.initTrigger)
+      self.connect(self, SIGNAL('spawnTrigger'), self.spawnTrigger)
 
       # We want to determine whether the user just upgraded to a new version
       self.firstLoadNewVersion = False
@@ -1736,6 +1739,7 @@ class ArmoryMainWindow(QMainWindow):
                # Maintain some linear lists of wallet info
                self.walletIDSet.add(wltID)
                self.walletIDList.append(wltID)
+               wltLoad.mainWnd = self
          except:
             LOGEXCEPT( '***WARNING: Wallet could not be loaded: %s (skipping)', fpath)
             raise
@@ -2308,6 +2312,7 @@ class ArmoryMainWindow(QMainWindow):
       ledger = []
       wlt = self.walletMap[newWltID]
       self.walletListChanged()
+      self.mainWnd = self
 
       
    #############################################################################
@@ -4954,8 +4959,21 @@ class ArmoryMainWindow(QMainWindow):
       reactor.stop()
       if event:
          event.accept()
+
+   #############################################################################
+   def spawnTrigger(self, toSpawn):
+      if isinstance(toSpawn, DlgProgress):
+         toSpawn.thread_lock.acquire()
+         toSpawn.status = 0
+         toSpawn.exec_()
+         toSpawn.thread_lock.release()
+         
+      toSpawn.status = 0
       
-      
+   def initTrigger(self, toInit):
+      if isinstance(toInit, DlgProgress):
+         toInit.setup(self)
+         toInit.status = 1
 
 ############################################
 class ArmoryInstanceListener(Protocol):

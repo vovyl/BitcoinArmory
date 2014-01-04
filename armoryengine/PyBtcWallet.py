@@ -24,6 +24,7 @@ from armoryengine.BinaryPacker import BinaryPacker, UINT8, BINARY_CHUNK, UINT16,
    UINT32, VAR_INT, UINT64, INT64
 from armoryengine.BinaryUnpacker import BinaryUnpacker
 from armoryengine.Timer import TimeThisFunction
+from armoryengine.ArmoryUtils import AllowAsync
 
 
 BLOCKCHAIN_READONLY   = 0
@@ -234,6 +235,9 @@ class PyBtcWallet(object):
       self.interruptTest1  = False
       self.interruptTest2  = False
       self.interruptTest3  = False
+      
+      #for progress dialog
+      self.mainWnd = None
 
    #############################################################################
    def getWalletVersion(self):
@@ -932,11 +936,30 @@ class PyBtcWallet(object):
 
       return new160
 
-
-
-
    #############################################################################
-   def fillAddressPool(self, numPool=None, isActuallyNew=True, doRegister=True):
+   def fillAddressPool(self, numPool=None, isActuallyNew=True, doRegister=True, GUI=True):
+
+      if GUI == False:
+         return self.fillAddressPool_(numPool, isActuallyNew, doRegister)
+      
+      if not numPool:
+         numPool = self.addrPoolSize
+
+      gap = self.lastComputedChainIndex - self.highestUsedChainIndex
+      numToCreate = max(numPool - gap, 0)
+      
+      if numToCreate>100:
+         from qtdialogs import DlgProgress
+         dlgprg = DlgProgress(self.mainWnd, self.mainWnd, HBar=numToCreate, Title='Computing New Addresses')
+         self.fillAddressPool_(numPool, isActuallyNew, doRegister, dlgprg, async=True)
+         dlgprg.spawn_()
+         return self.lastComputedChainIndex
+      else:
+         return self.fillAddressPool_(numPool, isActuallyNew, doRegister)
+      
+   #############################################################################
+   @AllowAsync
+   def fillAddressPool_(self, numPool=None, isActuallyNew=True, doRegister=True, dlgPrg=None):
       """
       Usually, when we fill the address pool, we are generating addresses
       for the first time, and thus there is no chance it's ever seen the
@@ -946,11 +969,18 @@ class PyBtcWallet(object):
       """
       if not numPool:
          numPool = self.addrPoolSize
+         
+      if dlgPrg is not None: lastCmp = self.lastComputedChainIndex
 
       gap = self.lastComputedChainIndex - self.highestUsedChainIndex
       numToCreate = max(numPool - gap, 0)
       for i in range(numToCreate):
-         self.computeNextAddress(isActuallyNew=isActuallyNew, doRegister=doRegister)
+         if dlgPrg is not None:
+            dlgPrg.UpdateHBar(i+1)
+            
+         self.computeNextAddress(isActuallyNew=isActuallyNew, doRegister=doRegister)\
+      
+      if dlgPrg is not None: dlgPrg.Kill()
       return self.lastComputedChainIndex
 
    #############################################################################
@@ -1436,14 +1466,27 @@ class PyBtcWallet(object):
 
       self.kdf = newkdf
 
-
-
-
-   #############################################################################
+   #############################################################################   
    def changeWalletEncryption(self, secureKdfOutput=None, \
                                     securePassphrase=None, \
                                     extraFileUpdates=[],
-                                    kdfObj=None):
+                                    kdfObj=None, GUI=True):
+
+      if GUI:
+         from qtdialogs import DlgProgress
+         dlgprg = DlgProgress(self.mainWnd, self.mainWnd, HBar=len(self.addrMap), Title='Changing Wallet Encryption')         
+         
+         self.changeWalletEncryption_(secureKdfOutput, securePassphrase, extraFileUpdates, kdfObj, DlgPrg = dlgprg, async=True)
+         dlgprg.spawn_()
+      else:
+         self.changeWalletEncryption_(secureKdfOutput, securePassphrase, extraFileUpdates, kdfObj)
+
+   #############################################################################
+   @AllowAsync
+   def changeWalletEncryption_(self, secureKdfOutput=None, \
+                                    securePassphrase=None, \
+                                    extraFileUpdates=[],
+                                    kdfObj=None, DlgPrg=None):
       """
       Supply the passphrase you would like to use to encrypt this wallet
       (or supply the KDF output directly, to skip the passphrase part).
@@ -1477,12 +1520,14 @@ class PyBtcWallet(object):
       oldKdfKey = None
       if oldUsedEncryption:
          if self.isLocked:
+            if DlgPrg is not None: DlgPrg.Kill()            
             raise WalletLockError, 'Must unlock wallet to change passphrase'
          else:
             oldKdfKey = self.kdfKey.copy()
 
 
       if newUsesEncryption and not self.kdf:
+         if DlgPrg is not None: DlgPrg.Kill()
          raise EncryptionError, 'KDF must be setup before encrypting wallet'
 
       # Prep the file-update list with extras passed in as argument
@@ -1494,6 +1539,7 @@ class PyBtcWallet(object):
          newKdfKey = self.kdf.DeriveKey(securePassphrase)
 
       if oldUsedEncryption and newUsesEncryption and self.verifyEncryptionKey(newKdfKey):
+         if DlgPrg is not None: DlgPrg.Kill()
          LOGWARN('Attempting to change encryption to same passphrase!')
          return # Wallet is encrypted with the new passphrase already
 
@@ -1515,7 +1561,14 @@ class PyBtcWallet(object):
             # Restore the old flag just in case the file write fails
 
          newAddrMap  = {}
+         i=1
          for addr160,addr in self.addrMap.iteritems():
+            
+            if DlgPrg is not None:
+               UIprogress = 'Changing encryption for address %d/%d' % (i, len(self.addrMap))
+               DlgPrg.UpdateHBar(i)
+               i = i +1
+            
             newAddrMap[addr160] = addr.copy()
             newAddrMap[addr160].enableKeyEncryption(generateIVIfNecessary=True)
             newAddrMap[addr160].changeEncryptionKey(oldKdfKey, newKdfKey)
@@ -1523,22 +1576,27 @@ class PyBtcWallet(object):
             walletUpdateInfo.append( \
                [WLT_UPDATE_MODIFY, addr.walletByteLoc, newAddrMap[addr160].serialize()])
 
-
          # Try to update the wallet file with the new encrypted key data
          updateSuccess = self.walletFileSafeUpdate( walletUpdateInfo )
-
+                             
          if updateSuccess:
             # Finally give the new data to the user
             for addr160,addr in newAddrMap.iteritems():
                self.addrMap[addr160] = addr.copy()
-
+         
+         if DlgPrg is not None: DlgPrg.Kill()   
+         
          self.useEncryption = newUsesEncryption
          if newKdfKey:
-            self.unlock(newKdfKey)
+            if DlgPrg is not None: self.unlock(newKdfKey)
+            else: self.unlock_(newKdfKey)
+    
       finally:
          # Make sure we always destroy the temporary passphrase results
          if newKdfKey: newKdfKey.destroy()
          if oldKdfKey: oldKdfKey.destroy()
+         if DlgPrg is not None: DlgPrg.Kill()
+
 
 
 
@@ -2582,12 +2640,38 @@ class PyBtcWallet(object):
 
       return txdp
 
-
-
    #############################################################################
    def unlock(self, secureKdfOutput=None, \
                     securePassphrase=None, \
-                    tempKeyLifetime=0):
+                    tempKeyLifetime=0, GUI=True):
+      
+      if self.isLocked == False:
+         if self.useEncryption == False: return
+         else:
+            if tempKeyLifetime==0:
+               self.lockWalletAtTime = RightNow() + self.defaultKeyLifetime
+            else:
+               self.lockWalletAtTime = RightNow() + tempKeyLifetime
+         return
+      
+      if GUI == True:
+         LOGDEBUG('Attempting to unlock wallet: %s', self.uniqueIDB58)
+         if not secureKdfOutput and not securePassphrase:
+            raise PassphraseError, "No passphrase/key provided to unlock wallet!"
+            
+         from qtdialogs import DlgProgress      
+         dlgprg = DlgProgress(self.mainWnd, self.mainWnd, HBar=len(self.addrMap), Title='Unlocking Wallet')   
+         
+         self.unlock_(secureKdfOutput, securePassphrase, tempKeyLifetime, dlgPrg=dlgprg, async=True)
+         dlgprg.spawn_()
+      else:
+         self.unlock_(secureKdfOutput, securePassphrase, tempKeyLifetime)
+
+   #############################################################################
+   @AllowAsync
+   def unlock_(self, secureKdfOutput=None, \
+                    securePassphrase=None, \
+                    tempKeyLifetime=0, dlgPrg=None):
       """
       We must assume that the kdfResultKey is a SecureBinaryData object
       containing the result of the KDF-passphrase.  The wallet unlocked-
@@ -2595,18 +2679,21 @@ class PyBtcWallet(object):
       time the checkWalletLockTimeout function is called it will be re-
       locked.
       """
-
-      LOGDEBUG('Attempting to unlock wallet: %s', self.uniqueIDB58)
-      if not secureKdfOutput and not securePassphrase:
-         raise PassphraseError, "No passphrase/key provided to unlock wallet!"
+      
+      if dlgPrg is None:
+         LOGDEBUG('Attempting to unlock wallet: %s', self.uniqueIDB58)
+         if not secureKdfOutput and not securePassphrase:
+            raise PassphraseError, "No passphrase/key provided to unlock wallet!"
 
       if not secureKdfOutput:
          if not self.kdf:
+            if dlgPrg is not None: dlgPrg.Kill()
             raise EncryptionError, 'How do we have a locked wallet w/o KDF???'
          secureKdfOutput = self.kdf.DeriveKey(securePassphrase)
 
 
       if not self.verifyEncryptionKey(secureKdfOutput):
+         if dlgPrg is not None: dlgPrg.Kill()
          raise PassphraseError, "Incorrect passphrase for wallet"
 
       # For now, I assume that all keys have the same passphrase and all
@@ -2624,9 +2711,17 @@ class PyBtcWallet(object):
       #This fix runs through all address entries ordered by chainIndex, to be able to feed the closest computed address entry
       #to the upcoming, possibly uncomputed entries.
 
+      if dlgPrg is not None:
+         naddress = 1
+         ntotal = len(self.addrMap)
       addrObjPrev = None
       import operator
       for addrObj in (sorted(self.addrMap.values(), key=operator.attrgetter('chainIndex'))):
+         if dlgPrg is not None:
+            UIprogress = naddress
+            dlgPrg.UpdateHBar(UIprogress)
+            naddress = naddress +1
+         
          needToSaveAddrAfterUnlock = addrObj.createPrivKeyNextUnlock
          if needToSaveAddrAfterUnlock and addrObjPrev is not None:
                ChainDepth = addrObj.chainIndex - addrObjPrev.chainIndex
@@ -2645,11 +2740,37 @@ class PyBtcWallet(object):
                                                 addrObj.serialize()]])
 
       self.isLocked = False
+      if dlgPrg is not None: dlgPrg.Kill()
       LOGDEBUG('Unlock succeeded: %s', self.uniqueIDB58)
 
 
    #############################################################################
-   def lock(self):
+   def lock(self, GUI=True):
+      
+      if GUI:
+         longlock = 0
+         
+         for addr160,addrObj in self.addrMap.iteritems():
+            if addrObj.keyChanged != 0:
+               longlock = 1
+               break
+            
+         if longlock == 1:
+            from qtdialogs import DlgProgress
+            dlgprg = DlgProgress(self.mainWnd, self.mainWnd)            
+            
+            self.lock_(dlgPrg = dlgprg, async=True)
+            dlgprg.spawn_()
+         else:
+            self.lock_()
+            
+      else:
+         self.lock_()
+         
+
+   #############################################################################
+   @AllowAsync
+   def lock_(self, dlgPrg=None):
       """
       We assume that we have already set all encryption parameters (such as
       IVs for each key) and thus all we need to do is call the "lock" method
@@ -2681,9 +2802,16 @@ class PyBtcWallet(object):
       #       input for PyBtcAddress::lock for "I don't have it".  In most
       #       cases, it is actually possible to lock the wallet without the
       #       kdfKey because we saved the encrypted versions before unlocking
+      
       LOGDEBUG('Attempting to lock wallet: %s', self.uniqueIDB58)
+      i=1
       try:
          for addr160,addrObj in self.addrMap.iteritems():
+            if dlgPrg is not None:
+               UIprogress = 'locking address %d/%d' % (i, len(self.addrMap))
+               dlgPrg.UpdateText(UIprogress)
+               i = i +1
+            
             self.addrMap[addr160].lock(self.kdfKey)
 
          if self.kdfKey:
@@ -2691,12 +2819,14 @@ class PyBtcWallet(object):
             self.kdfKey = None
          self.isLocked = True
       except WalletLockError:
+         if dlgPrg is not None: dlgPrg.Kill()
          LOGERROR('Locking wallet requires encryption key.  This error')
          LOGERROR('Usually occurs on newly-encrypted wallets that have')
          LOGERROR('never been encrypted before.')
          raise WalletLockError, 'Unlock with passphrase before locking again'
       LOGDEBUG('Wallet locked: %s', self.uniqueIDB58)
-
+      
+      if dlgPrg is not None: dlgPrg.Kill()
 
    #############################################################################
    def getAddrListSortedByChainIndex(self, withRoot=False):

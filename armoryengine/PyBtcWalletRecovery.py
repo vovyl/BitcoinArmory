@@ -196,7 +196,7 @@ class PyBtcWalletRecovery(object):
    def RecoverWallet(self, WalletPath, Passphrase=None, Mode='Bare', GUI=False):
       if GUI == True:
          self.ProgressRdy = 0
-         rtv = self.ProcessWallet(WalletPath, Passphrase, Mode, GUI, async = True)
+         rtv = self.ProcessWallet(WalletPath, Passphrase, Mode, GUI, mainWnd=self.parent, async = True)
          self.UIProgress()
          return rtv
       else:
@@ -204,7 +204,7 @@ class PyBtcWalletRecovery(object):
       
    #############################################################################
    @AllowAsync
-   def ProcessWallet(self, WalletPath, Passphrase=None, Mode='Bare', GUI=False):
+   def ProcessWallet(self, WalletPath, Passphrase=None, Mode='Bare', GUI=False, mainWnd=None):
       """
       Modes:
          1) Stripped: Only recover the root key and chaincode (it all sits in the header). As fail safe as it gets.
@@ -270,6 +270,7 @@ class PyBtcWalletRecovery(object):
 
       toRecover = PyBtcWallet()
       toRecover.walletPath = WalletPath
+      toRecover.mainWnd = mainWnd
 
       #consistency check
       try:
@@ -751,6 +752,8 @@ class PyBtcWalletRecovery(object):
             mode = 'Stripped'
          elif dlg.rdbtnFull.isChecked() is True:
             mode = 'Full'
+         elif dlg.rdbtnCheck.isChecked() is True:
+            mode = 'Check'
          
          self.RecoverWallet(WalletPath=path, Mode=mode, GUI=True)
       else:
@@ -758,161 +761,11 @@ class PyBtcWalletRecovery(object):
       
    #############################################################################
    def UIProgress(self):
-      self.ProgDlg = DlgProgress(main=self.parent, parent=self.parent)
+      self.ProgDlg = DlgProgress(main=self.parent, parent=self.parent, Interrupt="Stop Recovery", Title="<b>Recovering Wallet</b>")
       self.ProgressRdy = 1
       
-      if self.ProgDlg.exec_():
-         return
-      else: return
-      
-################################################################################
-class DlgWltRecoverWallet(ArmoryDialog):
-   def __init__(self, parent=None, main=None):
-      super(DlgWltRecoverWallet, self).__init__(parent, main)
+      self.ProgDlg.spawn_()
 
-      self.edtWalletPath = QLineEdit()
-      self.btnWalletPath = QPushButton('')
-      ico = QIcon(QPixmap(':/folder24.png')) 
-      self.btnWalletPath.setIcon(ico)
-      self.connect(self.btnWalletPath, SIGNAL('clicked()'), self.selectFile)      
-
-      lblDesc = QRichLabel('<b>Wallet Recovery Tool:</b><br>'
-                           'This tools attempts to recover data from damaged wallets.<br>'
-                           'Point to your wallet path and pick a recovery mode according to it\'s damage level'
-                           )
-      lblDesc.setScaledContents(True)
-
-      lblWalletPath = QRichLabel('Wallet Path:')
-
-
-      layoutMgmt = QGridLayout()
-      
-      layout_wltH = QHBoxLayout()
-      layout_wltH.addWidget(lblWalletPath, 2)
-      layout_wltH.addWidget(self.edtWalletPath, 7)
-      layout_wltH.addWidget(self.btnWalletPath, 1)
-      
-      layoutMgmt.addWidget(lblDesc, 0, 0, 2, 4)
-      layoutMgmt.addLayout(layout_wltH, 2, 0, 2, 4)
-
-      self.rdbtnStripped = QRadioButton('')
-      self.rdbtnStripped.setChecked(True)
-      lblStripped = QLabel('<b>Stripped Recovery</b><br>Only attempts to recover the wallet\'s rootkey and chaincode')
-      layout_StrippedH = QHBoxLayout()
-      layout_StrippedH.addWidget(self.rdbtnStripped, 1)
-      layout_StrippedH.addWidget(lblStripped, 30)
-      
-      self.rdbtnBare = QRadioButton('')
-      lblBare = QLabel('<b>Bare Recovery</b><br>Attempts to recover all private key related data')
-      layout_BareH = QHBoxLayout()
-      layout_BareH.addWidget(self.rdbtnBare, 1)
-      layout_BareH.addWidget(lblBare, 30)
-      
-      self.rdbtnFull = QRadioButton('')
-      lblFull = QLabel('<b>Full Recovery</b><br>Attempts to recover as much data as possible')
-      layout_FullH = QHBoxLayout()
-      layout_FullH.addWidget(self.rdbtnFull, 1)
-      layout_FullH.addWidget(lblFull, 30)
-      
-      self.rdbtnCheck = QRadioButton('')
-      lblCheck = QLabel('<b>Consistency Check</b><br>Checks wallet consistency. Works will both full and watch only<br> wallets.'
-                         ' Unlocking of encrypted wallets is not mandatory')
-      layout_CheckH = QHBoxLayout()
-      layout_CheckH.addWidget(self.rdbtnCheck, 1)
-      layout_CheckH.addWidget(lblCheck, 10)      
-      
-      #layoutMgmt.addWidget(self.rdbtnStripped, 3, 0, 1, 1)
-      #layoutMgmt.addWidget(lblStrippedP, 3, 1, 1, 12)
-      #layoutMgmt.addWidget(lblStripped, 4, 1, 1, 12)
-      layoutMgmt.addLayout(layout_StrippedH, 4, 0, 2, 4)
-      layoutMgmt.addLayout(layout_BareH, 6, 0, 2, 4)
-      layoutMgmt.addLayout(layout_FullH, 8, 0, 2, 4)
-      layoutMgmt.addLayout(layout_CheckH, 10, 0, 3, 4)
-
-      self.btnRecover = QPushButton('Recover')
-      self.btnCancel  = QPushButton('Cancel')
-      layout_btnH = QHBoxLayout()
-      layout_btnH.addWidget(self.btnRecover, 1)
-      layout_btnH.addWidget(self.btnCancel, 1)
-      #layout_btnH.setAlignment(Qt.AlignHCenter)
-
-      layoutMgmt.addLayout(layout_btnH, 13, 1, 1, 2)
-
-      self.connect(self.btnRecover, SIGNAL('clicked()'), self.accept)
-      self.connect(self.btnCancel , SIGNAL('clicked()'), self.reject)
-      
-      self.setLayout(layoutMgmt)
-      self.setWindowTitle('Wallet Recovery Tool')
-      self.setMinimumWidth(450)
-      
-   def selectFile(self):
-      self.edtWalletPath.setText(QFileDialog.getOpenFileName())
-            
-#################################################################################
-class DlgProgress(ArmoryDialog):
-   def __init__(self, parent=None, main=None):
-      super(DlgProgress, self).__init__(parent, main)
-      
-      self.running = 1
-      self.Done = 0
-      
-      self.connect(self, SIGNAL('Update'), self.UpdateDlg)
-      self.connect(self, SIGNAL('PromptPassphrase'), self.PromptPassphrase)
-      
-      self.lblDesc = QLabel('')
-      self.btnStop = QPushButton('Stop Recovery')
-      self.connect(self.btnStop, SIGNAL('clicked()'), self.Kill)
-      
-      layout_btnG = QGridLayout()
-      layout_btnG.setColumnStretch(0, 1)
-      layout_btnG.setColumnStretch(4, 1)
-      layout_btnG.addWidget(self.btnStop, 0, 1, 1, 3)
-         
-      layoutMgmt = QVBoxLayout()
-      layoutMgmt.addWidget(self.lblDesc)
-      layoutMgmt.addLayout(layout_btnG)
-      
-      self.setWindowFlags(Qt.Window | Qt.CustomizeWindowHint)
-      
-      self.setLayout(layoutMgmt)   
-      self.setWindowTitle('Progress')
-      self.show()
-      
-   def UpdateDlg(self):
-      self.lblDesc.setText(self.text)
-      if self.Done == 1:
-         self.btnStop.setText('Close')
-      
-   def UpdateText(self, updatedText, endRecovery=False):
-      self.text = updatedText
-      self.Done = endRecovery
-      self.emit(SIGNAL('Update'))
-      return self.running
-
-   def AskUnlock(self, wll):
-      self.GotPassphrase = 0
-      self.wll = wll
-      self.emit(SIGNAL('PromptPassphrase'))
-   
-   def PromptPassphrase(self):
-      dlg = DlgUnlockWallet(self.wll, self, self.parent, "Enter Passphrase", returnPassphrase=True)
-
-      if dlg.exec_():
-         #grab plain passphrase
-         self.Passphrase = ''
-         if dlg.Accepted == 1: 
-            self.GotPassphrase = 1
-            self.Passphrase = str(dlg.edtPasswd.text())
-            dlg.edtPasswd.setText('')
-         else: self.GotPassphrase = -1
-         return
-      else:
-         self.GotPassphrase = -1 
-         return
-      
-   def Kill(self):
-      self.running = 0           
-      self.done(0)
  
 """
 TODO: setup an array of tests:
