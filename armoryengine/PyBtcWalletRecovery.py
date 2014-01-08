@@ -5,6 +5,8 @@ from armoryengine.PyBtcAddress import *
 from armoryengine.PyBtcWallet import *
 from qtdialogs import *
 
+class InvalidEntry(Exception): pass
+
 class PyBtcWalletRecovery(object):
    """
    Fail safe wallet recovery tool. Reads a wallet, verifies and extracts sensitive data to a new file.
@@ -384,7 +386,9 @@ class PyBtcWalletRecovery(object):
       #private keys and comments will be added at the tail of the file.
       
       UIupdate = ""
-
+      self.misc = [] #miscellaneous errors     
+      self.rawError = [] #raw binary errors 
+      
       #move on to wallet body
       toRecover.lastComputedChainIndex = -UINT32_MAX
       toRecover.lastComputedChainAddr160  = None
@@ -395,30 +399,63 @@ class PyBtcWalletRecovery(object):
             UIupdate =  '<b>- Parsing file:</b>   %d/%d kB<br>' % (byteLocation, self.fileSize)
             if self.ProgDlg.UpdateText(self.UIreport + UIupdate) == 0:
                return 0
-
+            
+         newAddr = None
          try:
             dtype, hashVal, rawData = toRecover.unpackNextEntry(wltdata)
+         except NotImplementedError:
+            self.misc.append('Found OPEVAL data entry at offest: %d' % (byteLocation))
+            pass
          except:
-            #TODO: error in the binary file content. Try to open the next entry by forwarding by possible entry sizes
-            LOGERROR('Unpack error')
-            break
+            #Error in the binary file content. Try to skip an entry size amount of bytes to find a valid entry.
+            self.rawError.append('Raw binary error found at offset: %d' % (byteLocation))            
+            
+            dtype, hashVal, rawData, dataList = self.LookForFurtherEntry(wltdata, byteLocation)
+            
+            if dtype is None:
+               #could not find anymore valid data
+               self.rawError.append("Could not find anymore valid data past offset: %d" % (byteLocation))
+               break
+            
+            byteLocation = dataList[1]
+            self.rawError.append('   Found a valid data entry at offset: %d' % (byteLocation))
 
+            if dataList[0] == 0:
+               #found an address entry, but it has checksum errors
+               newAddr = dataList[2]
+               
          if dtype==WLT_DATATYPE_KEYDATA:
             if rmode != 4:
-               newAddr = PyBtcAddress()
-               newAddr.unserialize(rawData)
-               newAddr.walletByteLoc = byteLocation + 21
-   
-               if newAddr.useEncryption:
-                  newAddr.isLocked = True
-                
-               #save address entry count in the file, to check for entry sequence
-               if newAddr.chainIndex > -2 :
-                  addrDict[newAddr.chainIndex] = [newAddr, hashVal, self.naddress, byteLocation, rawData]
-                  self.naddress = self.naddress +1
-               else:
-                  importedDict[self.nImports] = [newAddr, hashVal, byteLocation, rawData]
-                  self.nImports = self.nImports +1
+               
+               if newAddr is None:
+                  newAddr = PyBtcAddress()
+                  try:
+                     newAddr.unserialize(rawData)
+                  except:
+                     #unserialize error, try to recover the entry
+                     self.rawError.append('   Found checksum errors in address entry starting at offset: %d' % (byteLocation))
+                     try:                        
+                        newAddr, chksumError = self.addrEntry_unserialize_recover(rawData)
+                        self.rawError.append('   Recovered damaged entry')
+                     except:
+                        #failed to recover the entry
+                        self.rawError.append('   Could not recover damaged entry')
+                        newAddr = None
+               
+               if newAddr is not None:
+                  newAddr.walletByteLoc = byteLocation + 21
+      
+                  if newAddr.useEncryption:
+                     newAddr.isLocked = True
+                   
+                  #save address entry count in the file, to check for entry sequence
+                  if newAddr.chainIndex > -2 :
+                     addrDict[newAddr.chainIndex] = [newAddr, hashVal, self.naddress, byteLocation, rawData]
+                     self.naddress = self.naddress +1
+                  else:
+                     importedDict[self.nImports] = [newAddr, hashVal, byteLocation, rawData]
+                     self.nImports = self.nImports +1
+                     
             else: self.naddress = self.naddress +1
                
 
@@ -428,12 +465,12 @@ class PyBtcWalletRecovery(object):
                self.ncomments = self.ncomments +1
 
          elif dtype==WLT_DATATYPE_OPEVAL:
-            LOGWARN('OP_EVAL not supported in wallet yet')
+            self.misc.append('Found OPEVAL data entry at offest: %d' % (byteLocation))
             pass
          elif dtype==WLT_DATATYPE_DELETED:
             pass
          else:
-            LOGERROR('invalid dtype: %d' % (dtype))
+            self.misc.append('Found unknown data entry type at offset: %d' % (byteLocation))
             #TODO: try same trick as to recover from unpack errors
             
       self.dataLastOffset = wltdata.getPosition()
@@ -465,7 +502,6 @@ class PyBtcWalletRecovery(object):
       self.missingPubKey = [] #addr[N] has no pub key
       self.hashValMismatch = [] #addrStr20 doesnt match hashVal entry in file      
       self.unmatchedPair = [] #private key doesnt yield public key
-      self.misc = [] #miscellaneous errors
       self.importedErr = [] #all imported keys related errors
       
       
@@ -675,7 +711,6 @@ class PyBtcWalletRecovery(object):
             if newAddr.useEncryption:
                newAddr.keyChanged = 1
                newAddr.lock(RecoveredWallet.kdfKey)
-               abcer = 1
       
       if GUI and self.nImports > 0: self.UIreport = self.UIreport + UIupdate     
       #TODO: check comments consistency
@@ -734,6 +769,298 @@ class PyBtcWalletRecovery(object):
           
          return commentDict
 
+   #############################################################################
+   def LookForFurtherEntry(self, rawdata, loc):
+      """
+      Attempts to find valid data entries in wallet file by skipping known byte widths. 
+      
+      The process:
+      1) Assume an address entry with invalid data type key and/or the hash160. Read ahead and try to unserialize a valid PyBtcAddress
+      2) Assume a corrupt address entry. Move 1+20+237 bytes ahead, try to unpack the next entry
+      
+      At this point all entries are of random length. The most accurate way to define them as valid is to try and unpack the next entry,
+      or check end of file has been hit gracefully
+      
+      3) Try for address comment
+      4) Try for transaction comment
+      5) Try for deleted entry
+      
+      6) At this point, can still try for random byte search. Essentially, push an incremental amount of bytes until a valid entry or the end of the file
+      is hit. Simplest way around it is to recursively call this member with an incremented loc
+      
+       
+      
+      About address entries: currently, the code tries to fully unserialize tentative address entries.
+      It will most likely raise at the slightest error. However, that doesn't mean the entry is entirely bogus,
+      or not an address entry at all. Individual data packets should be checked against their checksum for 
+      validity in a full implementation of the raw data recovery layer of this tool. Other entries do not carry
+      checksums and thus appear opaque to this recovery layer.
+      
+      TODO: 
+         1) verify each checksum data block in address entries
+         2) same with the file header
+      """
+      
+      #check loc against data end.
+      if loc >= rawdata.getSize():
+         return None, None, None, [0]
+      
+      #reset to last known good offset
+      rawdata.resetPosition(loc)
+      
+      #try for address entry: push 1 byte for the key, 20 for the public key hash, try to unpack the next 237 bytes as an address entry
+      try:
+         rawdata.advance(1)         
+         hash160 = rawdata.get(BINARY_CHUNK, 20)
+         chunk = rawdata.get(BINARY_CHUNK, self.pybtcaddrSize)         
+      
+         newAddr, chksumError = self.addrEntry_unserialize_recover(chunk)
+         #if we got this far, no exception was raised, return the valid entry and hash, but invalid key
+                  
+         if chksumError != 0:
+            #had some checksum errors, pass the data on
+            return 0, hash160, chunk, [0, loc, newAddr, chksumError]
+         
+         return 0, hash160, chunk, [1, loc]
+      except:
+         #unserialize error, move on
+         rawdata.resetPosition(loc)
+         
+      #try for next entry
+      try:
+         rawdata.advance(1+20+237)         
+         dtype, hash, chunk = PyBtcWallet().unpackNextEntry(rawdata)
+         if dtype>-1 and dtype<5:
+            return dtype, hash, chunk, [1, loc +1+20+237]
+         else:
+            rawdata.resetPosition(loc)
+      except:
+         rawdata.resetPosition(loc)         
+      
+      #try for addr comment: push 1 byte for the key, 20 for the hash160, 2 for the N and N for the comment 
+      try:
+         rawdata.advance(1)         
+         hash160 = rawdata.get(BINARY_CHUNK, 20)
+         chunk_length = rawdata.get(UINT16)
+         chunk = rawdata.get(BINARY_CHUNK, chunk_length)
+         
+         #test the next entry
+         dtype, hash, chunk2 = PyBtcWallet().unpackNextEntry(rawdata)
+         if dtype>-1 and dtype<5:
+            #good entry, return it
+            return 1, hash160, chunk, [1, loc]
+         else:
+            rawdata.resetPosition(loc)
+      except: 
+         rawdata.resetPosition(loc)   
+         
+      #try for txn comment: push 1 byte for the key, 32 for the txnhash, 2 for N, and N for the comment
+      try:
+         rawdata.advance(1)         
+         hash256 = rawdata.get(BINARY_CHUNK, 32)
+         chunk_length = rawdata.get(UINT16)
+         chunk = rawdata.get(BINARY_CHUNK, chunk_length)
+         
+         #test the next entry
+         dtype, hash, chunk2 = PyBtcWallet().unpackNextEntry(rawdata)
+         if dtype>-1 and dtype<5:
+            #good entry, return it
+            return 2, hash256, chunk, [1, loc]
+         else:
+            rawdata.resetPosition(loc)
+      except: 
+         rawdata.resetPosition(loc)
+         
+      #try for deleted entry: 1 byte for the key, 2 bytes for N, N bytes worth of 0s
+      try:
+         rawdata.advance(1)         
+         chunk_length = rawdata.get(UINT16)
+         chunk = rawdata.get(BINARY_CHUNK, chunk_length)
+         
+         #test the next entry
+         dtype, hash, chunk2 = PyBtcWallet().unpackNextEntry(rawdata)
+         if dtype>-1 and dtype<5:
+            baddata = 0
+            for i in len(chunk):
+               if i != 0:
+                  baddata = 1
+                  break
+               
+            if baddata != 0:
+               return 4, None, chunk, [1, loc]
+         
+         rawdata.resetPosition(loc)
+      except: 
+         rawdata.resetPosition(loc)       
+         
+      #couldn't find any valid entries, push loc by 1 and try again
+      loc = loc +1
+      return self.LookForFurtherEntry(rawdata, loc)
+   
+   #############################################################################   
+   def addrEntry_unserialize_recover(self, toUnpack):
+      """
+      Unserialze a raw address entry, test all checksum carrying members
+      
+      On errors, flags chksumError bits as follows:
+         
+         bit 0: addrStr20 error
+         
+         bit 1: private key error
+         bit 2: contains a valid private key even though containsPrivKey is 0
+         
+         bit 3: iv error
+         bit 4: contains a valid iv even though useEncryption is 0
+         
+         bit 5: pubkey error
+         bit 6: contains a valid pubkey even though containsPubKey is 0
+         
+         bit 7: chaincode error
+      """
+
+      if isinstance(toUnpack, BinaryUnpacker):
+         serializedData = toUnpack
+      else:
+         serializedData = BinaryUnpacker( toUnpack )
+
+
+      def chkzero(a):
+         """
+         Due to fixed-width fields, we will get lots of zero-bytes
+         even when the binary data container was empty
+         """
+         if a.count('\x00')==len(a):
+            return ''
+         else:
+            return a
+
+      chksumError = 0
+
+      # Start with a fresh new address
+      retAddr = PyBtcAddress()
+
+      retAddr.addrStr20 = serializedData.get(BINARY_CHUNK, 20)
+      chkAddr20      = serializedData.get(BINARY_CHUNK,  4)
+
+      addrVerInt     = serializedData.get(UINT32)
+      flags          = serializedData.get(UINT64)
+      retAddr.addrStr20 = verifyChecksum(self.addrStr20, chkAddr20)
+      flags = int_to_bitset(flags, widthBytes=8)
+
+      # Interpret the flags
+      containsPrivKey              = (flags[0]=='1')
+      containsPubKey               = (flags[1]=='1')
+      retAddr.useEncryption           = (flags[2]=='1')
+      retAddr.createPrivKeyNextUnlock = (flags[3]=='1')
+
+      if len(self.addrStr20)==0:
+         chksumError |= 1
+
+
+
+      # Write out address-chaining parameters (for deterministic wallets)
+      retAddr.chaincode   = chkzero(serializedData.get(BINARY_CHUNK, 32))
+      chkChaincode        =         serializedData.get(BINARY_CHUNK,  4)
+      retAddr.chainIndex  =         serializedData.get(INT64)
+      depth               =         serializedData.get(INT64)
+      retAddr.createPrivKeyNextUnlock_ChainDepth = depth
+
+      # Correct errors, convert to secure container
+      retAddr.chaincode = SecureBinaryData(verifyChecksum(retAddr.chaincode, chkChaincode))
+      if retAddr.chaincode.getSize == 0:
+         chksumError |= 128
+
+
+      # Write out whatever is appropriate for private-key data
+      # Binary-unpacker will write all 0x00 bytes if empty values are given
+      iv      = chkzero(serializedData.get(BINARY_CHUNK, 16))
+      chkIv   =         serializedData.get(BINARY_CHUNK,  4)
+      privKey = chkzero(serializedData.get(BINARY_CHUNK, 32))
+      chkPriv =         serializedData.get(BINARY_CHUNK,  4)
+      iv      = SecureBinaryData(verifyChecksum(iv, chkIv))
+      privKey = SecureBinaryData(verifyChecksum(privKey, chkPriv))
+
+
+      # If this is SUPPOSED to contain a private key...
+      if containsPrivKey:
+         if privKey.getSize()==0:
+            chksumError |= 2
+            containsPrivKey = 0 
+      else:
+         if privKey.getSize()==32:
+            chksumError |= 4
+            containsPrivKey = 1
+
+      if retAddr.useEncryption:
+         if iv.getSize()==0:
+            chksumError |= 8
+            retAddr.useEncryption = 0
+      else:
+         if iv.getSize()==16:
+            chksumError |= 16
+            retAddr.useEncryption = 1
+            
+      if retAddr.useEncryption:  
+         if retAddr.createPrivKeyNextUnlock:
+            retAddr.createPrivKeyNextUnlock_IVandKey[0] = iv.copy()
+            retAddr.createPrivKeyNextUnlock_IVandKey[1] = privKey.copy()
+         else:
+            retAddr.binInitVect16     = iv.copy()
+            retAddr.binPrivKey32_Encr = privKey.copy()
+      else:
+         retAddr.binInitVect16      = iv.copy()
+         retAddr.binPrivKey32_Plain = privKey.copy()
+
+      pubKey = chkzero(serializedData.get(BINARY_CHUNK, 65))
+      chkPub =         serializedData.get(BINARY_CHUNK, 4)
+      pubKey = SecureBinaryData(verifyChecksum(pubKey, chkPub))
+
+      if containsPubKey:
+         if not pubKey.getSize()==65:
+            chksumError |= 32
+            if retAddr.binPrivKey32_Plain.getSize()==32:
+               pubKey = CryptoAES().ComputePublicKey(retAddr.binPrivKey32_Plain)
+      else:
+         if pubKey.getSize()==65:
+            chksumError |= 64
+
+      retAddr.binPublicKey65 = pubKey
+
+      retAddr.timeRange[0] = serializedData.get(UINT64)
+      retAddr.timeRange[1] = serializedData.get(UINT64)
+      retAddr.blkRange[0]  = serializedData.get(UINT32)
+      retAddr.blkRange[1]  = serializedData.get(UINT32)
+
+      retAddr.isInitialized = True
+      
+      if (chksumError and 171) == 171:
+         raise InvalidEntry
+      
+      if chksumError != 0:
+         #write out errors to the list
+         self.rawError.append('   Encountered checksum errors in follolwing address entry members:')
+                 
+         if chksumError and 1:
+            self.rawError.append('      - addrStr20')
+         if chksumError and 2: 
+            self.rawError.append('      - private key')
+         if chksumError and 4:
+            self.rawError.append('      - hasPrivatKey flag')
+         if chksumError and 8:
+            self.rawError.append('      - Encryption IV')
+         if chksumError and 16:
+            self.rawError.append('      - useEncryption flag')
+         if chksumError and 32:
+            self.rawError.append('      - public key')
+         if chksumError and 64:
+            self.rawError.append('      - hasPublicKey flag')
+         if chksumError and 128:
+            self.rawError.append('      - chaincode')
+      
+      return retAddr, chksumError
+
+         
+         
    #############################################################################
    #GUI related members start here
    #############################################################################
