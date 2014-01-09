@@ -13806,28 +13806,28 @@ class DlgWltRecoverWallet(ArmoryDialog):
       self.rdbtnStripped = QRadioButton('')
       self.rdbtnStripped.setChecked(True)
       lblStripped = QLabel('<b>Stripped Recovery</b><br>Only attempts to recover the wallet\'s rootkey and chaincode')
-      layout_StrippedH = QHBoxLayout()
-      layout_StrippedH.addWidget(self.rdbtnStripped, 1)
-      layout_StrippedH.addWidget(lblStripped, 30)
+      layout_StrippedH = QGridLayout()
+      layout_StrippedH.addWidget(self.rdbtnStripped, 0, 0, 1, 1)
+      layout_StrippedH.addWidget(lblStripped, 0, 1, 2, 19)
 
       self.rdbtnBare = QRadioButton('')
       lblBare = QLabel('<b>Bare Recovery</b><br>Attempts to recover all private key related data')
-      layout_BareH = QHBoxLayout()
-      layout_BareH.addWidget(self.rdbtnBare, 1)
-      layout_BareH.addWidget(lblBare, 30)
+      layout_BareH = QGridLayout()
+      layout_BareH.addWidget(self.rdbtnBare, 0, 0, 1, 1)
+      layout_BareH.addWidget(lblBare, 0, 1, 2, 19)
 
       self.rdbtnFull = QRadioButton('')
       lblFull = QLabel('<b>Full Recovery</b><br>Attempts to recover as much data as possible')
-      layout_FullH = QHBoxLayout()
-      layout_FullH.addWidget(self.rdbtnFull, 1)
-      layout_FullH.addWidget(lblFull, 30)
+      layout_FullH = QGridLayout()
+      layout_FullH.addWidget(self.rdbtnFull, 0, 0, 1, 1)
+      layout_FullH.addWidget(lblFull, 0, 1, 2, 19)
 
       self.rdbtnCheck = QRadioButton('')
       lblCheck = QLabel('<b>Consistency Check</b><br>Checks wallet consistency. Works will both full and watch only<br> wallets.'
                          ' Unlocking of encrypted wallets is not mandatory')
-      layout_CheckH = QHBoxLayout()
-      layout_CheckH.addWidget(self.rdbtnCheck, 1)
-      layout_CheckH.addWidget(lblCheck, 10)
+      layout_CheckH = QGridLayout()
+      layout_CheckH.addWidget(self.rdbtnCheck, 0, 0, 1, 1)
+      layout_CheckH.addWidget(lblCheck, 0, 1, 3, 19)
 
       #layoutMgmt.addWidget(self.rdbtnStripped, 3, 0, 1, 1)
       #layoutMgmt.addWidget(lblStrippedP, 3, 1, 1, 12)
@@ -13882,6 +13882,7 @@ class DlgProgress(ArmoryDialog):
       self.Done = 0
       self.status = 0
       self.main = main
+      self.parent = parent
       self.Interrupt = Interrupt
       self.HBar = HBar
       self.Title = Title
@@ -14015,8 +14016,14 @@ class DlgProgress(ArmoryDialog):
       self.setModal(True)
 
       self.setLayout(layoutMgmt)
-      #self.setWindowTitle('Progress')
-      #self.show()
+      self.adjustSize()
+
+      btmRight = self.parent.rect().bottomRight()
+      topLeft = self.parent.rect().topLeft()
+      globalbtmRight = self.parent.mapToGlobal((btmRight+topLeft)/2)
+
+      self.move(globalbtmRight - QPoint(self.width()/2, self.height()))
+
       self.hide()
 
 
