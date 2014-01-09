@@ -290,9 +290,13 @@ class PyBtcWalletRecovery(object):
          returned = toRecover.unpackHeader(wltdata)
       except: return self.BuildLogFile(-1) #Raises here come from invalid header parsing, meaning the file isn't an Armory wallet to begin with, or the header is fubar
 
+      #TODO: try to salvage broken header
+
       if returned < 0: return self.BuildLogFile(WalletPath, -3)
 
       self.useEnc=0
+
+      rootAddr = None
 
       #check for private keys (watch only?)
       if toRecover.watchingOnly is True:
@@ -318,7 +322,7 @@ class PyBtcWalletRecovery(object):
                if rmode==5: self.WO = 1
                else: return self.BuildLogFile(-4)
 
-         newAddr = toRecover.addrMap['ROOT']
+         rootAddr = toRecover.addrMap['ROOT']
 
          #if the wallet uses encryption, unlock ROOT and verify it
          SecurePassphrase = None
@@ -340,7 +344,7 @@ class PyBtcWalletRecovery(object):
             toRecover.kdfKey = secureKdfOutput
 
             try:
-               newAddr.unlock(toRecover.kdfKey)
+               rootAddr.unlock(toRecover.kdfKey)
             except:
                return self.BuildLogFile(-12)
          else:
@@ -356,7 +360,7 @@ class PyBtcWalletRecovery(object):
 
             try:
                RecoveredWallet.createNewWallet(newWalletFilePath=self.newwalletPath, securePassphrase=SecurePassphrase, \
-                                            plainRootKey=newAddr.binPrivKey32_Plain, chaincode=newAddr.chaincode, \
+                                            plainRootKey=rootAddr.binPrivKey32_Plain, chaincode=rootAddr.chaincode, \
                                             #not registering with the BDM, so no addresses are computed
                                             doRegisterWithBDM=False, \
                                             shortLabel=toRecover.labelName, longLabel=toRecover.labelDescr)
@@ -471,13 +475,26 @@ class PyBtcWalletRecovery(object):
             pass
          else:
             self.misc.append('Found unknown data entry type at offset: %d' % (byteLocation))
-            #TODO: try same trick as to recover from unpack errors
+            #TODO: try same trick as recovering from unpack errors?
 
       self.dataLastOffset = wltdata.getPosition()
       UIupdate = '<b>- Parsing file:</b>   %d/%d kB<br>' % (self.dataLastOffset, self.fileSize)
       self.UIreport = self.UIreport + UIupdate
 
-      #TODO: verify chainIndex 0 was derived from the root key
+      #verify the root address is derived from the root key
+      testroot = PyBtcAddress().createFromPlainKeyData(rootAddr.binPrivKey32_Plain, None, None, generateIVIfNecessary=True)
+      if rootAddr.addrStr20 != testroot.addrStr20:
+         self.rawError.append('   root address was not derived from the root key')
+
+
+      #verify chainIndex 0 was derived from the root address
+      firstAddr = rootAddr.extendAddressChain(toRecover.kdfKey)
+      if firstAddr.addrStr20 != addrDict[0].addrStr20:
+         self.rawError.append('   chainIndex 0 was not derived from the root address')
+
+      rootAddr.binPrivKey32_Plain.destroy()
+      testroot.binPrivKey32_Plain.destroy()
+
 
       if rmode != 4:
          currSequence = addrDict[0][2]
