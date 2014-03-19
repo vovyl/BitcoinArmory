@@ -2850,17 +2850,8 @@ class ArmoryMainWindow(QMainWindow):
    #############################################################################
    @TimeThisFunction
    def getAddrCommentIfAvailAll(self, txHash):
-      if not TheBDM.isInitialized():
-         return ''
-      else:
+      return ''
 
-         appendedComments = []
-         for wltID,wlt in self.walletMap.iteritems():
-            cmt = wlt.getAddrCommentIfAvail(txHash)
-            if len(cmt)>0:
-               appendedComments.append(cmt)
-
-         return '; '.join(appendedComments)
 
 
 
@@ -2868,20 +2859,8 @@ class ArmoryMainWindow(QMainWindow):
    def getCommentForLE(self, wltID, le):
       # Smart comments for LedgerEntry objects:  get any direct comments ...
       # if none, then grab the one for any associated addresses.
+      return ''
 
-      return self.walletMap[wltID].getCommentForLE(le)
-      """
-      txHash = le.getTxHash()
-      if wlt.commentsMap.has_key(txHash):
-         comment = wlt.commentsMap[txHash]
-      else:
-         # [[ COMMENTS ]] are not meant to be displayed on main ledger
-         comment = self.getAddrCommentIfAvail(txHash)
-         if comment.startswith('[[') and comment.endswith(']]'):
-            comment = ''
-
-      return comment
-      """
 
 
 

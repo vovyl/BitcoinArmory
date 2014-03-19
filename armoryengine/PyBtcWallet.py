@@ -330,33 +330,10 @@ class PyBtcWallet(object):
 
    #############################################################################
    def getCommentForAddrBookEntry(self, abe):
-      comment = self.getComment(abe.getAddr160())
-      if len(comment)>0:
-         return comment
-
-      # SWIG BUG! 
-      # http://sourceforge.net/tracker/?func=detail&atid=101645&aid=3403085&group_id=1645
-      # Apparently, using the -threads option when compiling the swig module
-      # causes the "for i in vector<...>:" mechanic to sometimes throw seg faults!
-      # For this reason, this method was replaced with the one below:
-      for regTx in abe.getTxList():
-         comment = self.getComment(regTx.getTxHash())
-         if len(comment)>0:
-            return comment
-
       return ''
       
    #############################################################################
    def getCommentForTxList(self, a160, txhashList):
-      comment = self.getComment(a160)
-      if len(comment)>0:
-         return comment
-
-      for txHash in txhashList:
-         comment = self.getComment(txHash)
-         if len(comment)>0:
-            return comment
-
       return ''
 
    #############################################################################
@@ -1615,10 +1592,7 @@ class PyBtcWallet(object):
 
    #############################################################################
    def getCommentForAddress(self, addr160):
-      if self.commentsMap.has_key(addr160):
-         return self.commentsMap[addr160]
-      else:
-         return ''
+      return ''
 
    #############################################################################
    def getComment(self, hashVal):
@@ -1627,10 +1601,7 @@ class PyBtcWallet(object):
       In the first case, use the 20-byte binary pubkeyhash.  Use 32-byte tx
       hash for the tx-comment case.
       """
-      if self.commentsMap.has_key(hashVal):
-         return self.commentsMap[hashVal]
-      else:
-         return ''
+      return ''
 
    #############################################################################
    def setComment(self, hashVal, newComment):
@@ -1667,51 +1638,14 @@ class PyBtcWallet(object):
 
    #############################################################################
    def getAddrCommentIfAvail(self, txHash):
-      if not TheBDM.getBDMState()=='BlockchainReady':
-         return self.getComment(txHash)
-         
-      # If we haven't extracted relevant addresses for this tx, yet -- do it
-      if not self.txAddrMap.has_key(txHash):
-         self.txAddrMap[txHash] = []
-         tx = TheBDM.getTxByHash(txHash)
-         if tx.isInitialized():
-            for i in range(tx.getNumTxOut()):
-               txout = tx.getTxOutCopy(i)
-               stype = getTxOutScriptType(txout.getScript())
-               scrAddr = tx.getScrAddrForTxOut(i)
-
-               if stype in CPP_TXOUT_HAS_ADDRSTR:
-                  addrStr = scrAddr_to_addrStr(scrAddr)
-                  addr160 = addrStr_to_hash160(addrStr)[1]
-                  if self.hasAddr(addr160):
-                     self.txAddrMap[txHash].append(addr160)
-               else: 
-                  LOGERROR("Unrecognized scraddr: " + binary_to_hex(scrAddr))
-               
-     
-
-      addrComments = []
-      for a160 in self.txAddrMap[txHash]:
-         if self.commentsMap.has_key(a160):
-            addrComments.append(self.commentsMap[a160])
-
-      return '; '.join(addrComments)
+      return ''
 
                   
    #############################################################################
    def getCommentForLE(self, le):
       # Smart comments for LedgerEntry objects:  get any direct comments ... 
       # if none, then grab the one for any associated addresses.
-      txHash = le.getTxHash()
-      if self.commentsMap.has_key(txHash):
-         comment = self.commentsMap[txHash]
-      else:
-         # [[ COMMENTS ]] are not meant to be displayed on main ledger
-         comment = self.getAddrCommentIfAvail(txHash)
-         if comment.startswith('[[') and comment.endswith(']]'):
-            comment = ''
-
-      return comment
+      return ''
 
 
 
